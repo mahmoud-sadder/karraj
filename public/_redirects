@@ -1,0 +1,4 @@
+# Single-page app: every unmatched path renders index.html at status 200,
+# so deep links and the share-a-build URL codec survive a hard refresh.
+# Pages checks static files first, so this never shadows a real asset.
+/*  /index.html  200

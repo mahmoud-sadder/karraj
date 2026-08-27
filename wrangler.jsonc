@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "karraj",
+  "compatibility_date": "2026-08-27",
+
+  // Cloudflare Pages. `npm run build` writes here; `wrangler pages deploy` reads it.
+  // Static-only — there is no Pages Function in this project and no `_worker.js`.
+  "pages_build_output_dir": "./dist"
+}

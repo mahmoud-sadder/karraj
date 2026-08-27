@@ -1,0 +1,49 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      # `npm ci` honours the lockfile exactly. That matters here: two peer ranges
+      # in this project are narrow (see README), and `npm install` in CI could
+      # resolve past them.
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      # The asset pipeline does NOT run in CI. public/models/car.glb is committed,
+      # so a deploy never depends on the Khronos repo being reachable, and the
+      # bytes that ship are the bytes that were verified locally.
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy dist
+            --project-name=karraj
+            --branch=${{ github.head_ref || github.ref_name }}
