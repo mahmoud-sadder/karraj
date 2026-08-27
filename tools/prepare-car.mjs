@@ -201,7 +201,6 @@ const SIDEWALL_FEATHER_DEG = 3
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const log = (...a) => console.log(...a)
 const step = (n, msg) => console.log(`\n\x1b[36m[${n}]\x1b[0m ${msg}`)
 const note = (msg) => console.log(`      \x1b[2m${msg}\x1b[0m`)
 const warn = (msg) => console.log(`      \x1b[33m! ${msg}\x1b[0m`)
