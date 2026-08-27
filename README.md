@@ -131,6 +131,13 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
 
 Cloudflare Pages. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+There is deliberately **no `_redirects` file**: Cloudflare rejects the usual
+`/* /index.html 200` SPA rule as an infinite loop, the Workers-only replacement
+(`not_found_handling`) is unavailable to Pages configs, and this app has no client-side
+router anyway. The practical consequence is a constraint on the day-8 URL codec — encode
+the build into the **query string or hash**, never a path segment. Details in
+[`docs/DEPLOY.md`](docs/DEPLOY.md).
+
 ---
 
 ## Licence

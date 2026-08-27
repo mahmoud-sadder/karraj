@@ -97,7 +97,50 @@ other for the same deployment slot.
 |---|---|
 | `wrangler.jsonc` | Points Wrangler at `dist`. Static only — no Pages Function, no `_worker.js` |
 | `public/_headers` | Immutable caching for Vite's content-hashed `/assets/*`; a softer 24h + stale-while-revalidate for `/models/*`, which is **not** hashed |
-| `public/_redirects` | SPA fallback, so the share-a-build URL survives a hard refresh |
+
+## There is deliberately no `_redirects` file
+
+The usual SPA fallback — `/*  /index.html  200` — **is rejected by Cloudflare**, and not
+as a false positive:
+
+```
+Invalid _redirects configuration:
+Line 4: Infinite loop detected in this rule. This would cause a redirect to strip
+`.html` or `/index` and end up triggering this rule again. [code: 100324]
+```
+
+Cloudflare's asset router normalises `/index.html` back to `/`, which re-matches `/*`,
+which rewrites to `/index.html` again. Workers rejects the deployment outright; Pages
+reports it at build time and silently ignores the rule, which is worse — you get a green
+build and 404s on every deep link.
+
+There is no way to write the rule so it does not loop. `_redirects` has no negation
+syntax, and the workaround in
+[workers-sdk#11824](https://github.com/cloudflare/workers-sdk/issues/11824) is to rename
+`index.html`. The modern replacement, `assets.not_found_handling:
+"single-page-application"`, is a **Workers-only** setting — a Pages configuration file
+rejects the whole `assets` block:
+
+```
+Configuration file for Pages projects does not support "assets"
+```
+
+None of which matters, because **Karraj has no client-side router.** There are no paths to
+fall back from, so a 404 on an unrouted path is the correct response, and the file was
+solving a problem this app does not have.
+
+### What this means for the day-8 URL codec
+
+This is now a constraint on `src/state/codec.ts`, not just a preference:
+
+- **Encode the build into the query string or the hash** — `/?c=<config>` or `/#<config>`.
+  Both resolve to `/`, which is a real file, so they survive a hard refresh with no
+  server-side routing at all.
+- **Do not use path segments** — `/build/<config>` would 404 on refresh.
+
+If a real router ever does land, the options are: move the deployment to Workers static
+assets and set `not_found_handling`, or add a Pages Function that serves `index.html` for
+unmatched routes. Re-adding `_redirects` is not one of them.
 
 ### On the model cache header
 
