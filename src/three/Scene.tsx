@@ -4,6 +4,7 @@ import { Suspense, useEffect } from 'react'
 import * as THREE from 'three'
 
 import { isDebug, useArt } from '../state/art'
+import { useConfig } from '../state/config'
 import { useCarModel } from './useCarModel'
 
 /**
@@ -135,6 +136,28 @@ function EnvironmentIntensity() {
   return null
 }
 
+/**
+ * Requests a frame whenever configuration or art parameters change.
+ *
+ * Required by `frameloop="demand"`: the renderer is asleep unless something asks it to
+ * draw. OrbitControls invalidates itself on every change event (drei does this), so
+ * orbiting and damping stay smooth, but a paint colour written straight onto a
+ * material bypasses React entirely and would otherwise not show up until the next
+ * time the user happened to drag the camera.
+ */
+function InvalidateOnChange() {
+  const invalidate = useThree((s) => s.invalidate)
+  useEffect(() => {
+    const unsubConfig = useConfig.subscribe(() => invalidate())
+    const unsubArt = useArt.subscribe(() => invalidate())
+    return () => {
+      unsubConfig()
+      unsubArt()
+    }
+  }, [invalidate])
+  return null
+}
+
 /** Tone-mapping exposure, live-editable from the debug panel. */
 function Exposure() {
   const gl = useThree((s) => s.gl)
@@ -172,6 +195,12 @@ export default function Scene() {
   return (
     <Canvas
       dpr={[1, 2]}
+      // The car is static and the camera only moves when dragged, so drawing at the
+      // display refresh rate forever is pure waste — it pins the GPU and heats the
+      // machine for frames identical to the last one. On demand, the renderer sleeps
+      // until something invalidates. Debug keeps 'always' because the environment
+      // re-bakes continuously there and leva sliders need to show live.
+      frameloop={debug ? 'always' : 'demand'}
       camera={{ fov: FOV, position: framingPosition(aspect), near: 0.1, far: 100 }}
       gl={{
         antialias: true,
@@ -190,6 +219,7 @@ export default function Scene() {
 
       <EnvironmentIntensity />
       <Exposure />
+      <InvalidateOnChange />
 
       <Suspense fallback={null}>
         <Car />
@@ -213,6 +243,11 @@ export default function Scene() {
           blur={art.contactBlur}
           opacity={art.contactOpacity}
           resolution={1024}
+          // Default is Infinity — a 1024² depth pass every single frame, for a shadow
+          // under a car that never moves. Two frames is enough to bake it once the
+          // model is in the graph. When ride height lands (day 5) this needs bumping
+          // or re-triggering, since the car will actually move relative to the floor.
+          frames={debug ? Infinity : 2}
         />
 
         {/* LOOKDEV §3: light with reflected shapes, not lights. Long thin bright
