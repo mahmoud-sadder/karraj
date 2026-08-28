@@ -128,6 +128,37 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
 
 ---
 
+## VIN → vehicle → 3D model
+
+```
+https://karraj.pages.dev/?vin=WBANE535X7CW65098
+```
+
+Decodes a real VIN and selects the 3D model from the result. Three pieces:
+
+| | |
+|---|---|
+| `src/vin/vin.ts` | Format, ISO 3779 transliteration, check digit. Rejects typos offline |
+| `src/vin/nhtsa.ts` | NHTSA vPIC — free, no API key, `access-control-allow-origin: *` |
+| `src/vin/registry.ts` | `bodyClass` → GLB. Keyed on body class, not make/model |
+
+**The decoder is an interface, not a call.** `VinDecoder` has one working
+implementation (NHTSA) and one stub (`CarseerVinDecoder`), so swapping the source is a
+single class and a single line. vPIC is a US agency and its coverage of Chinese-market
+vehicles is thin — a MENA decoder would beat it on exactly the vehicles that matter in
+Jordan since the November 2025 import regulation.
+
+**The registry is keyed on `bodyClass` deliberately.** vPIC reports a few dozen body
+classes against millions of make/model/year combinations, so a handful of generic
+shapes covers most of a real inventory — and a viewer looking at their saloon is not
+checking shut lines against a press photo. When there is no asset for a body class the
+UI says so rather than silently showing the wrong shape.
+
+**A failed check digit is a warning, not an error.** Vehicles built outside North
+America do not always carry a valid one, so refusing to decode would reject real cars
+in an import market. Length and charset failures *are* fatal, and are caught locally
+before any request goes out.
+
 ## Debug panel
 
 ```
