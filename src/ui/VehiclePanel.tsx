@@ -33,7 +33,7 @@ export default function VehiclePanel({
   const { identity, model, status } = vehicle
 
   return (
-    <div className="pointer-events-auto w-72 rounded-xl border border-white/10 bg-neutral-950/85 p-3 backdrop-blur-xl">
+    <div className="flex flex-col">
       <form
         onSubmit={(e) => {
           e.preventDefault()

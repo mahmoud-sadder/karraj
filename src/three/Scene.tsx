@@ -5,6 +5,7 @@ import * as THREE from 'three'
 
 import { isDebug, useArt } from '../state/art'
 import { useConfig } from '../state/config'
+import { viewLayout } from '../ui/layout'
 import { useCarModel } from './useCarModel'
 
 /**
@@ -35,9 +36,6 @@ const FOV = 30
  */
 const BASE_DISTANCE = 6.2
 
-/** Fallback aspect when there is no window to measure (never hit in the browser). */
-const BASE_ASPECT = 16 / 9
-
 /**
  * Measured AABB of the built GLB (see `npm run prepare:car`). The car sits on y=0,
  * is centred in x, and is 0.238 m forward in z.
@@ -58,31 +56,25 @@ const CAR_CORNERS = [CAR_MIN.x, CAR_MAX.x].flatMap((x) =>
 )
 
 /**
- * Smallest camera distance along HERO_DIR that fits the car's bounding box in BOTH
- * axes of the frustum.
+ * Smallest camera distance along HERO_DIR that fits the car's bounding box into the
+ * part of the canvas the UI is NOT covering.
  *
- * `fov` is the VERTICAL field of view, so a portrait phone has a far narrower
- * horizontal one — 14 degrees at 375x812 against 51 at 16:9. Framing has to be solved
- * per-axis, not scaled off one of them: a desktop viewport is limited by the vertical
- * axis and a phone by the horizontal, so any single-axis rule badly under-scales one
- * of the two. That was the bug this replaced, and it cropped the car on every phone.
+ * Takes the frustum half-tangents directly rather than an "aspect", because the two are
+ * no longer the same thing: `setViewOffset` and the UI margins mean the visible wedge
+ * is narrower than the camera's nominal aspect implies, and per-axis at that.
  *
- * For a corner P, with camera at T + dir*d, the offsets perpendicular to the view axis
- * are independent of d, so the constraint solves in closed form:
+ * Both axes have to be solved. `fov` is the VERTICAL field of view, so a desktop
+ * viewport is limited by the vertical axis and a phone by the horizontal; any rule
+ * scaled off one axis badly under-scales the other.
+ *
+ * For a corner P, with the camera at T + dir*d, the offsets perpendicular to the view
+ * axis do not depend on d, so it solves in closed form:
  *
  *   a = (P-T)·right, b = (P-T)·up, c = (P-T)·forward
- *   fits when |a| <= (c+d)·tan(hHalf) and |b| <= (c+d)·tan(vHalf)
- *   =>  d >= |a|/tan(hHalf) - c   and   d >= |b|/tan(vHalf) - c
- *
- * Sanity check: at 16:9 this yields 6.09 m, which is within a few centimetres of the
- * distance that was tuned by eye before the maths existed.
+ *   fits when |a| <= (c+d)·tanH and |b| <= (c+d)·tanV
+ *   =>  d >= |a|/tanH - c   and   d >= |b|/tanV - c
  */
-function fitDistance(aspect: number): number {
-  const vHalf = THREE.MathUtils.degToRad(FOV) / 2
-  const hHalf = Math.atan(Math.tan(vHalf) * aspect)
-  const tanV = Math.tan(vHalf)
-  const tanH = Math.tan(hHalf)
-
+function fitDistance(tanHalfH: number, tanHalfV: number): number {
   const target = new THREE.Vector3(...CAR_CENTRE)
   const forward = HERO_DIR.clone().negate()
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize()
@@ -94,21 +86,17 @@ function fitDistance(aspect: number): number {
     const a = Math.abs(v.dot(right)) * FRAMING_MARGIN
     const b = Math.abs(v.dot(up)) * FRAMING_MARGIN
     const c = v.dot(forward)
-    distance = Math.max(distance, a / tanH - c, b / tanV - c)
+    distance = Math.max(distance, a / tanHalfH - c, b / tanHalfV - c)
   }
   return distance
 }
 
-/**
- * Camera position for a given viewport aspect.
- *
- * Computed BEFORE the Canvas mounts, deliberately. Setting `camera.position` from an
- * effect afterwards does not stick: OrbitControls has already taken ownership of the
- * camera and recomputes it from its own state every frame. Handing the right position
- * to the `camera` prop lets OrbitControls initialise from it instead of fighting it.
- */
-function framingPosition(aspect: number): [number, number, number] {
-  const p = new THREE.Vector3(...CAR_CENTRE).addScaledVector(HERO_DIR, fitDistance(aspect))
+/** Camera position that frames the car into the uncovered canvas. */
+function framingPosition(tanHalfH: number, tanHalfV: number): [number, number, number] {
+  const p = new THREE.Vector3(...CAR_CENTRE).addScaledVector(
+    HERO_DIR,
+    fitDistance(tanHalfH, tanHalfV),
+  )
   return [p.x, p.y, p.z]
 }
 
@@ -158,6 +146,67 @@ function InvalidateOnChange() {
   return null
 }
 
+/**
+ * Under `?debug=1` only: puts the R3F state on `window.r3f` so the camera, scene and
+ * renderer can be driven from the console while dialling look-dev on day 7.
+ */
+function DebugBridge() {
+  const state = useThree()
+  useEffect(() => {
+    ;(globalThis as unknown as { r3f: unknown }).r3f = state
+  }, [state])
+  return null
+}
+
+/**
+ * Shifts the rendered image so the car sits centred in the free canvas rather than
+ * behind the rail.
+ *
+ * §12: "Offset the car from centre. Panel on the right → frame the car left-of-centre.
+ * Symmetrical framing with asymmetrical UI looks like a bug."
+ *
+ * `setViewOffset` renders a sub-window of a larger virtual frame, which moves the
+ * projection without touching the camera transform — so OrbitControls keeps orbiting
+ * about the car rather than about some displaced point.
+ *
+ * Both axes matter. The rail reduces width on desktop; the bottom sheet reduces height
+ * on mobile. Handling only the first hid the whole car behind the sheet on a phone.
+ */
+function OffsetForUI() {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
+  const size = useThree((s) => s.size)
+  const invalidate = useThree((s) => s.invalidate)
+
+  useEffect(() => {
+    const v = viewLayout(size.width, size.height, FOV)
+    if (v.offsetX <= 0 && v.offsetY <= 0) {
+      camera.clearViewOffset()
+    } else {
+      // The aspect must describe the VIRTUAL frame, not the canvas — see ViewLayout.
+      // eslint-disable-next-line react/immutability
+      camera.aspect = v.aspect
+      camera.setViewOffset(
+        v.fullWidth,
+        v.fullHeight,
+        v.offsetX,
+        v.offsetY,
+        size.width,
+        size.height,
+      )
+    }
+    camera.updateProjectionMatrix()
+    invalidate()
+    return () => {
+      camera.clearViewOffset()
+      // eslint-disable-next-line react/immutability
+      camera.aspect = size.width / size.height
+      camera.updateProjectionMatrix()
+    }
+  }, [camera, size.width, size.height, invalidate])
+
+  return null
+}
+
 /** Tone-mapping exposure, live-editable from the debug panel. */
 function Exposure() {
   const gl = useThree((s) => s.gl)
@@ -179,15 +228,23 @@ function Exposure() {
  * `authored` is the density as dialled at BASE_DISTANCE — the art store's value, so
  * the debug slider stays meaningful at every viewport size.
  */
-function fogDensityFor(aspect: number, authored: number): number {
-  return (authored * BASE_DISTANCE) / fitDistance(aspect)
+function fogDensityFor(distance: number, authored: number): number {
+  return (authored * BASE_DISTANCE) / distance
 }
 
 export default function Scene() {
   // Read once at mount. A placeholder viewer does not need to re-frame on rotate;
   // the camera rig will own that properly later.
-  const aspect =
-    typeof window === 'undefined' ? BASE_ASPECT : window.innerWidth / window.innerHeight
+  //
+  // Framing uses the aspect of the canvas the UI is NOT covering, not the raw viewport.
+  // Framing to the full width put roughly half the car underneath the panel — measured
+  // at 46.7% covered before this changed.
+  const viewport =
+    typeof window === 'undefined'
+      ? { width: 1600, height: 900 }
+      : { width: window.innerWidth, height: window.innerHeight }
+  const layout = viewLayout(viewport.width, viewport.height, FOV)
+  const distance = fitDistance(layout.tanHalfH, layout.tanHalfV)
 
   const art = useArt()
   const debug = isDebug()
@@ -201,7 +258,12 @@ export default function Scene() {
       // until something invalidates. Debug keeps 'always' because the environment
       // re-bakes continuously there and leva sliders need to show live.
       frameloop={debug ? 'always' : 'demand'}
-      camera={{ fov: FOV, position: framingPosition(aspect), near: 0.1, far: 100 }}
+      camera={{
+        fov: FOV,
+        position: framingPosition(layout.tanHalfH, layout.tanHalfV),
+        near: 0.1,
+        far: 100,
+      }}
       gl={{
         antialias: true,
         // BRIEF §6: from day 1. Costs almost nothing, and without it every
@@ -215,11 +277,13 @@ export default function Scene() {
       <color attach="background" args={['#0a0b0d']} />
       {/* LOOKDEV §8: light exponential fog, so the floor dissolves into the background
           instead of ending in a hard horizon seam that cuts the frame in half. */}
-      <fogExp2 attach="fog" args={['#0a0b0d', fogDensityFor(aspect, art.fogDensity)]} />
+      <fogExp2 attach="fog" args={['#0a0b0d', fogDensityFor(distance, art.fogDensity)]} />
 
       <EnvironmentIntensity />
       <Exposure />
       <InvalidateOnChange />
+      <OffsetForUI />
+      {debug && <DebugBridge />}
 
       <Suspense fallback={null}>
         <Car />
@@ -233,21 +297,36 @@ export default function Scene() {
           <meshStandardMaterial color={art.floorColor} roughness={art.floorRoughness} metalness={0.05} />
         </mesh>
 
-        {/* LOOKDEV §6: a car with no contact shadow reads as a sticker on the floor.
-            One pass here; day 7 splits it into the tight contact patch + wide
-            underbody pool. */}
+        {/* LOOKDEV §6: a real car casts a LAYERED shadow, and shipping one uniformly
+            blurred ellipse is named there as the #1 amateur tell — the car reads as a
+            sticker on the floor. Two passes:
+
+              tight  almost-black, barely blurred, right at the tyre contact patches.
+                     "The darkest pixel in your entire frame should be at the tyre
+                     contact patch, and it should be sharp."
+              wide   soft car-shaped pool for the underbody cavity, extending past the
+                     sills.
+
+            Both bake over a few frames rather than every frame — the car does not move,
+            so re-rendering a depth pass continuously is pure waste. Ride height on day 5
+            will need this re-triggering. */}
         <ContactShadows
           position={[0, 0.001, CAR_CENTRE[2]]}
-          scale={11}
-          far={1.6}
-          blur={art.contactBlur}
+          scale={8}
+          far={0.5}
+          blur={0.6}
           opacity={art.contactOpacity}
           resolution={1024}
-          // Default is Infinity — a 1024² depth pass every single frame, for a shadow
-          // under a car that never moves. Two frames is enough to bake it once the
-          // model is in the graph. When ride height lands (day 5) this needs bumping
-          // or re-triggering, since the car will actually move relative to the floor.
-          frames={debug ? Infinity : 2}
+          frames={debug ? Infinity : 4}
+        />
+        <ContactShadows
+          position={[0, 0.0005, CAR_CENTRE[2]]}
+          scale={14}
+          far={2}
+          blur={art.contactBlur}
+          opacity={art.contactPoolOpacity}
+          resolution={512}
+          frames={debug ? Infinity : 4}
         />
 
         {/* LOOKDEV §3: light with reflected shapes, not lights. Long thin bright

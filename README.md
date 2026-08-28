@@ -128,6 +128,25 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
 
 ---
 
+## Layout, and why the camera knows about it
+
+KARRAJ-LOOKDEV.md §12 is specific: one edge, never two opposing anchors, keep >=65% of
+the viewport as unbroken canvas, and offset the car when the UI is asymmetric. All the
+chrome lives in a single `Rail` — a right rail above `md`, a bottom sheet below it.
+
+The camera has to know where that UI is, or it frames the car into space the panel is
+covering. `src/ui/layout.ts` owns the constants and the projection maths, and both the
+Rail and the Scene read from it. Measured coverage of the car went **46.7% → 0%**.
+
+Two things here are easy to get wrong and were, in turn:
+
+- **Both axes matter.** The rail reduces width on desktop; the sheet reduces height on
+  mobile. Fixing only the horizontal case left the car 100% hidden behind the sheet.
+- **`setViewOffset` needs the camera aspect changed too.** three builds the base frustum
+  from `camera.aspect` and then scales it by `view.width / view.fullWidth`, so leaving
+  R3F's canvas aspect in place stretches the image by `fullWidth/width` — a 22%
+  horizontal stretch at 1440px, subtle enough to read as bad modelling.
+
 ## Glass without `transmission`
 
 `KHR_materials_transmission` is stripped in the pipeline — it forces an extra

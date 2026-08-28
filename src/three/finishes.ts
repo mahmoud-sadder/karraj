@@ -103,6 +103,14 @@ function flakeMapAt(source: THREE.Texture, repeat: number): THREE.Texture {
   return clone
 }
 
+/**
+ * Frees the cloned flake textures.
+ *
+ * Only meaningful if the model cache is ever invalidated — the clones share `.source`
+ * with the asset's own map, so they hold negligible GPU memory of their own, and the
+ * car model is cached for the lifetime of the GLTF. Exported rather than deleted
+ * because a multi-car registry (one model per body class) will need it.
+ */
 export function disposeFlakeVariants() {
   for (const texture of flakeVariants.values()) texture.dispose()
   flakeVariants.clear()

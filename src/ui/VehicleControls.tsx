@@ -66,9 +66,11 @@ export default function VehicleControls() {
   const c = useConfig()
 
   return (
-    <div className="pointer-events-auto flex w-[26rem] max-w-[calc(100vw-2rem)] flex-col gap-2.5 rounded-xl border border-white/10 bg-neutral-500/15 p-3 backdrop-blur-xl">
+    <div className="flex flex-col gap-3">
       <Section label="paint">
-        <div className="flex flex-wrap items-center gap-2">
+        {/* §12 rule 4: swatches on a neutral mid-grey chip, never on the dark panel —
+            against near-black every colour reads lighter than it is. */}
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-neutral-500/25 p-2">
           {PAINT_PRESETS.map((p) => (
             <button
               key={p.hex}

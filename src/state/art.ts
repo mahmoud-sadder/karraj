@@ -28,7 +28,10 @@ export interface ArtParams {
   kickerIntensity: number
   fillIntensity: number
 
+  /** Tight pass — the contact patches. Near-black and barely blurred (§6). */
   contactOpacity: number
+  /** Wide pass — the underbody cavity pool. Soft and much weaker (§6). */
+  contactPoolOpacity: number
   contactBlur: number
 
   /** Live-editable copies of the six finish tables. */
@@ -63,8 +66,9 @@ export const DEFAULT_ART: ArtParams = {
   kickerIntensity: 8,
   fillIntensity: 1,
 
-  contactOpacity: 0.72,
-  contactBlur: 2.2,
+  contactOpacity: 0.9,
+  contactPoolOpacity: 0.4,
+  contactBlur: 3,
 
   finishes: structuredClone(FINISH_SPECS),
 }

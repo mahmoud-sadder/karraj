@@ -208,6 +208,13 @@ export default function DebugPanel() {
         step: 0.01,
         onChange: (v: number) => useArt.getState().set({ contactOpacity: v }),
       },
+      contactPoolOpacity: {
+        value: art.contactPoolOpacity,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ contactPoolOpacity: v }),
+      },
       contactBlur: {
         value: art.contactBlur,
         min: 0,
