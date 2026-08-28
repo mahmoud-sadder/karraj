@@ -14,6 +14,9 @@ import { useConfig } from '../state/config'
 import { viewLayout } from '../ui/layout'
 import { useDirection } from '../ui/useDirection'
 import { ENVIRONMENT_PRESETS, rotationOf } from './environments'
+import Floor from './Floor'
+import GarageSet from './GarageSet'
+import Post from './Post'
 import Underglow from './Underglow'
 import { useCarModel } from './useCarModel'
 
@@ -214,17 +217,6 @@ function OffsetForUI({ rtl }: { rtl: boolean }) {
   return null
 }
 
-/** Tone-mapping exposure, live-editable from the debug panel. */
-function Exposure({ value }: { value: number }) {
-  const gl = useThree((s) => s.gl)
-  const exposure = value
-  useEffect(() => {
-    // eslint-disable-next-line react/immutability
-    gl.toneMappingExposure = exposure
-  }, [gl, exposure])
-  return null
-}
-
 /**
  * Exponential fog is a function of absolute distance, so a density that reads as a
  * light haze with the camera at 6 m swallows the car whole once a portrait viewport
@@ -307,9 +299,9 @@ export default function Scene() {
         // BRIEF §6: from day 1. Costs almost nothing, and without it every
         // screenshot export is a coin flip on an already-cleared buffer.
         preserveDrawingBuffer: true,
-        // LOOKDEV §4: Neutral, never ACES. ACES turns a user's #e01010 into brown,
-        // which for a paint configurator is a functional bug, not a taste call.
-        toneMapping: THREE.NeutralToneMapping,
+        // §4: tone mapping happens in the composer, so it must NOT also happen here.
+        // Doing both is the classic "why is everything washed out" bug.
+        toneMapping: THREE.NoToneMapping,
       }}
     >
       {/* Steps the tier down when frames are being missed and back up when there is
@@ -326,27 +318,22 @@ export default function Scene() {
           instead of ending in a hard horizon seam that cuts the frame in half. */}
       <fogExp2 attach="fog" args={[scene.background, fogDensityFor(distance, scene.fog)]} />
 
-      <EnvironmentIntensity value={scene.envIntensity} />
-      <Exposure value={scene.exposure} />
+      <EnvironmentIntensity value={scene.envIntensity * scene.exposure} />
       <InvalidateOnChange />
       <OffsetForUI rtl={direction === 'rtl'} />
+      <Post tier={tier} />
       {debug && <DebugBridge />}
 
       <Suspense fallback={null}>
         <Car />
 
-        {/* A floor, so the contact shadow has something to fall on — on a black void
-            a dark shadow is invisible and the car simply floats. Flat and matte for
-            now; LOOKDEV §7 wants semi-reflective polished concrete with a roughness
-            map, and that is day 7. Base colour is §7's 0.06-0.10 linear grey. */}
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow={false}>
-          <planeGeometry args={[80, 80]} />
-          <meshStandardMaterial
-            color={scene.floorColor}
-            roughness={scene.floorRoughness}
-            metalness={0.05}
-          />
-        </mesh>
+        {/* §7: semi-reflective polished concrete, broken up by a roughness map.
+            A perfectly uniform floor is the giveaway. */}
+        <Floor tier={tier} color={scene.floorColor} />
+
+        {/* §8: only the Garage preset gets a set. Studio is deliberately empty — a
+            neutral field is the point of it — and Night wants near-black. */}
+        {envId === 'garage' && tier >= 1 && <GarageSet />}
 
         {/* LOOKDEV §6: a real car casts a LAYERED shadow, and shipping one uniformly
             blurred ellipse is named there as the #1 amateur tell — the car reads as a

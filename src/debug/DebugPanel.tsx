@@ -208,6 +208,13 @@ export default function DebugPanel() {
         step: 0.01,
         onChange: (v: number) => useArt.getState().set({ contactOpacity: v }),
       },
+      floorReflection: {
+        value: art.floorReflection,
+        min: 0,
+        max: 1.5,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ floorReflection: v }),
+      },
       contactPoolOpacity: {
         value: art.contactPoolOpacity,
         min: 0,
@@ -221,6 +228,37 @@ export default function DebugPanel() {
         max: 8,
         step: 0.05,
         onChange: (v: number) => useArt.getState().set({ contactBlur: v }),
+      },
+    }),
+
+    post: folder({
+      bloomIntensity: {
+        value: art.bloomIntensity,
+        min: 0,
+        max: 2,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ bloomIntensity: v }),
+      },
+      bloomThreshold: {
+        value: art.bloomThreshold,
+        min: 0,
+        max: 2,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ bloomThreshold: v }),
+      },
+      vignetteOffset: {
+        value: art.vignetteOffset,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ vignetteOffset: v }),
+      },
+      vignetteDarkness: {
+        value: art.vignetteDarkness,
+        min: 0,
+        max: 1.5,
+        step: 0.01,
+        onChange: (v: number) => useArt.getState().set({ vignetteDarkness: v }),
       },
     }),
 

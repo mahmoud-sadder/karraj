@@ -21,12 +21,20 @@ export interface ArtParams {
 
   floorColor: string
   floorRoughness: number
+  /** MeshReflectorMaterial mixStrength. §7 wants 0.4-0.6 — never a mirror. */
+  floorReflection: number
 
   keyIntensity: number
   flankLeftIntensity: number
   flankRightIntensity: number
   kickerIntensity: number
   fillIntensity: number
+
+  /** Tight pass — the contact patches. Near-black and barely blurred (§6). */
+  bloomIntensity: number
+  bloomThreshold: number
+  vignetteOffset: number
+  vignetteDarkness: number
 
   /** Tight pass — the contact patches. Near-black and barely blurred (§6). */
   contactOpacity: number
@@ -57,7 +65,8 @@ export const DEFAULT_ART: ArtParams = {
   // LOOKDEV §7: 0.06–0.10 linear grey. Dark, but never pure black — a black floor
   // loses all contact reading.
   floorColor: '#31353b',
-  floorRoughness: 0.45,
+  floorRoughness: 0.32,
+  floorReflection: 0.5,
 
   // LOOKDEV §3 intensity ratios: key 1.0 → flanks 0.6–0.8 → kicker 1.2–2.0 → fill 0.1–0.2.
   keyIntensity: 6,
@@ -65,6 +74,12 @@ export const DEFAULT_ART: ArtParams = {
   flankRightIntensity: 2,
   kickerIntensity: 8,
   fillIntensity: 1,
+
+  // §10: threshold 1.0 in a linear workspace means only the emissive lights bloom.
+  bloomIntensity: 0.55,
+  bloomThreshold: 1.0,
+  vignetteOffset: 0.28,
+  vignetteDarkness: 0.55,
 
   contactOpacity: 0.9,
   contactPoolOpacity: 0.4,

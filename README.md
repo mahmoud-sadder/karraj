@@ -6,9 +6,9 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 6 of 10. Paint, wheels, glass, lights, ride height, underglow, three
-scene presets, adaptive quality, and a schema-driven UI. Share URLs, Arabic and the
-DVLD layer still to come.
+**Status:** day 7 of 10. Paint, wheels, glass, lights, ride height, underglow, three
+scene presets, adaptive quality, a schema-driven UI, and a dialled look. Share URLs,
+Arabic and the DVLD layer still to come.
 
 **Live:** <https://karraj.pages.dev>
 
@@ -128,6 +128,48 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
    every triangle count in §4.7 are exactly right.
 
 ---
+
+## Look-dev
+
+LOOKDEV §13 ranks the work by look-per-hour, and day 7 spent it in that order. The
+Lightformer rig, the two-pass contact shadow, Neutral tone mapping, the finish tables
+and the camera discipline were already in from earlier days. Day 7 added:
+
+**Post-processing** (§10). Bloom at `luminanceThreshold: 1.0` in a linear workspace, so
+only the emissive lights bloom and paint highlights stay crisp — §10 is blunt that
+low-threshold bloom is the classic amateur haze. Vignette, SMAA on the weakest tier,
+and no SSAO at all, because the asset already ships a 2048² baked AO map and SSAO on
+top of a good bake adds noise for 3-6 ms.
+
+Tone mapping now happens **only** in the composer. §4: doing it in both the Canvas and
+the composer is the classic "why is everything washed out" bug. `NoToneMapping` on the
+Canvas also disables `toneMappingExposure`, so exposure folds into environment
+intensity — equivalent here because every light is image-based, and it has the useful
+side effect that emissive lights are no longer scaled down with exposure.
+
+**A concrete floor** (§7). Semi-reflective, short-range, heavily blurred, and broken up
+by a procedurally generated roughness map — §7 is right that a perfectly uniform floor
+is the giveaway. The calibration is that you should see the car's colour smeared
+beneath it but never the shape of the wheels.
+
+**A garage set** (§8). Six low-poly props at mid-distance that exist to appear in
+reflections. Two lessons landed here: `Lightformer` only lights anything when it is a
+child of `<Environment>` — in the main scene it is just a glowing rectangle that pulls
+the eye off the car — and a four-high tyre stack projected clean over the roofline and
+read as fins growing out of the roof.
+
+### Calibration
+
+Both of §13's tests pass:
+
+- **At 25% size** the silhouette, specular streak and grounding all survive.
+- **Six finishes across red, white and dark.** Red gloss reads `(87,39,50)` — blue above
+  green, so crimson rather than orange, which is the tone-mapping check. White holds a
+  mean near 100 against a peak of 245-252, so it is not flat. Dark still varies 50 → 76
+  across finishes, so it keeps its form.
+
+Measured against §8's exposure rule: car peak luminance **96%**, environment mean
+**2.8%**. The car is the only bright thing in frame.
 
 ## The UI is data
 
