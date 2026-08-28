@@ -6,8 +6,9 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 4 of 10. Six paint finishes, two-tone, rim finishes, two-layer window
-tint and light control. No stance, presets or real UI yet.
+**Status:** day 5 of 10. Paint, wheels, glass, lights, ride height, underglow, three
+scene presets and adaptive quality. Schema-driven UI, share URLs and the DVLD layer
+still to come.
 
 **Live:** <https://karraj.pages.dev>
 
@@ -127,6 +128,45 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
    every triangle count in §4.7 are exactly right.
 
 ---
+
+## Three scene presets
+
+LOOKDEV §2 argues for three looks rather than one, and Studio is the load-bearing one:
+*a very dark scene makes every paint colour look expensive and every paint colour look
+similar.* If someone is choosing paint they need somewhere to actually see it, so this
+is a functional requirement rather than a nicety.
+
+| preset | for |
+|---|---|
+| **Garage** | The hero look. Dark, tight, warm practicals. Where screenshots happen |
+| **Studio** | Judging paint honestly. Neutral, even, low contrast |
+| **Night** | Car meet. Near-black with cyan and magenta edge light |
+
+Night obeys §11's hard rule: accent colour may light the room but must never be the
+primary source on the paint, or the paint colour becomes a lie and the configurator
+stops working. The key stays white and dominant; the neon sits behind the car.
+
+Underglow is **off by default** and is a soft floor pool, never a ring — §11 puts a
+glowing under-car ring in the forbidden list as the classic gaming-peripheral signifier.
+
+## Ride height
+
+The body drops while the wheels stay on the ground. Each wheel group is pushed back up
+in its own local space, which is not a simple axis flip: this asset is authored Z-up and
+the wheel parents are scaled, so the compensation goes through the inverse of the
+parent's basis **without normalising** — a unit local step is not a unit world step, and
+normalising made the wheels rise 54 mm for a 45 mm drop.
+
+Verified vertex-accurately: tyres stay pinned at y = -0.0001 at every ride height while
+the body drops by exactly the requested amount. Travel is clamped at 85 mm, because at
+90 mm the lowest body vertex reaches y = -0.0014 and clips the floor.
+
+## Adaptive quality
+
+`PerformanceMonitor` watches the real frame rate and steps a tier between 0 and 2,
+driving device pixel ratio and shadow/environment resolution. BRIEF §7's third risk is
+"mid-range mobile perf discovered on day 9"; measuring beats guessing from a device
+string, which ages badly.
 
 ## Layout, and why the camera knows about it
 

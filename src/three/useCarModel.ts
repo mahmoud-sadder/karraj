@@ -71,6 +71,8 @@ export interface CarModel {
   /** The asset's own Powdercoat_N flake map (§4.4), shared by every paint finish. */
   flakeMap: THREE.Texture | null
   glass: { tint: THREE.MeshBasicMaterial; reflection: THREE.MeshPhysicalMaterial } | null
+  /** Wheel groups plus their as-authored local positions, for the ride-height rig. */
+  wheels: { node: THREE.Object3D; origin: THREE.Vector3; localUp: THREE.Vector3 }[]
   /** Emissive values as authored, so "lights off" can restore exactly. */
   lightBaseline: LightBaseline
   /** The Interior* subtree, hidden wholesale once the glass is dark enough. */
@@ -79,6 +81,24 @@ export interface CarModel {
 
 /** Threshold past which the cabin is genuinely not visible through the glass. */
 const INTERIOR_CULL_TINT = 0.85
+
+/** Wheel groups. Named nodes, guaranteed by the pipeline's assertions. */
+const WHEEL_GROUPS = ['WheelFrontL', 'WheelFrontR', 'WheelRearL', 'WheelRearR']
+
+/**
+ * Lowers the body while the wheels stay on the ground.
+ *
+ * The whole car drops by `drop`, then each wheel group is pushed back up by the same
+ * amount in its own local space. The compensation cannot assume an axis: this asset is
+ * authored Z-up, so a wheel group's local "up" is not necessarily +Y. `localUp` is
+ * derived once from the parent's world matrix at build time.
+ */
+function applyStance(model: CarModel, drop: number) {
+  model.scene.position.y = -drop
+  for (const wheel of model.wheels) {
+    wheel.node.position.copy(wheel.origin).addScaledVector(wheel.localUp, drop)
+  }
+}
 
 /** Writes the config onto the materials. Pure side effect; no allocation per call. */
 function applyConfig(model: CarModel, config: Config) {
@@ -103,6 +123,7 @@ function applyConfig(model: CarModel, config: Config) {
   }
 
   applyLights(model.materials, model.lightBaseline, config.lights.on, config.lights.headlightColor)
+  applyStance(model, config.stance.drop)
 
   // BRIEF §6's free win: past this tint the cabin is genuinely not visible, so ~30
   // meshes and ~25k triangles can leave the frame entirely. One line, and it is the
@@ -194,7 +215,32 @@ function createCarModel(scene: THREE.Object3D): CarModel {
       if (object.name.startsWith('Interior')) interiorNodes.push(object)
     })
 
-    const model: CarModel = { scene: root, materials, flakeMap, glass, lightBaseline, interiorNodes }
+    // Ride-height rig. Capture each wheel group's authored position and the local
+    // direction that corresponds to world +Y, so lowering the body can be compensated
+    // without assuming which local axis points up.
+    root.updateMatrixWorld(true)
+    const wheels: CarModel['wheels'] = []
+    for (const name of WHEEL_GROUPS) {
+      const node = root.getObjectByName(name)
+      if (!node?.parent) continue
+      // NOT normalised. This is the local vector whose effect in world space is
+      // exactly +1 m of Y, so it carries the parent's scale as well as its rotation.
+      // Normalising it made the wheels rise 54 mm for a 45 mm drop, because the parent
+      // is scaled and a unit local step is not a unit world step.
+      const parentBasis = new THREE.Matrix3().setFromMatrix4(node.parent.matrixWorld).invert()
+      const localUp = new THREE.Vector3(0, 1, 0).applyMatrix3(parentBasis)
+      wheels.push({ node, origin: node.position.clone(), localUp })
+    }
+
+    const model: CarModel = {
+      scene: root,
+      materials,
+      flakeMap,
+      glass,
+      lightBaseline,
+      interiorNodes,
+      wheels,
+    }
     applyConfig(model, useConfig.getState())
     return model
 }

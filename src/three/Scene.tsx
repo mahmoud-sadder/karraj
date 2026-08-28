@@ -1,11 +1,19 @@
-import { ContactShadows, Environment, Lightformer, OrbitControls } from '@react-three/drei'
+import {
+  ContactShadows,
+  Environment,
+  Lightformer,
+  OrbitControls,
+  PerformanceMonitor,
+} from '@react-three/drei'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Suspense, useEffect } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import * as THREE from 'three'
 
 import { isDebug, useArt } from '../state/art'
 import { useConfig } from '../state/config'
 import { viewLayout } from '../ui/layout'
+import { ENVIRONMENT_PRESETS, rotationOf } from './environments'
+import Underglow from './Underglow'
 import { useCarModel } from './useCarModel'
 
 /**
@@ -112,9 +120,9 @@ function Car() {
  * material's environment contribution at once, so it stays orthogonal to the
  * per-finish `envMapIntensity` values in the LOOKDEV table rather than fighting them.
  */
-function EnvironmentIntensity() {
+function EnvironmentIntensity({ value }: { value: number }) {
   const scene = useThree((s) => s.scene)
-  const intensity = useArt((s) => s.environmentIntensity)
+  const intensity = value
   useEffect(() => {
     // Mutating a three.js object is the intended way to drive the renderer from React;
     // the lint rule is aimed at React state, which this is not.
@@ -208,9 +216,9 @@ function OffsetForUI() {
 }
 
 /** Tone-mapping exposure, live-editable from the debug panel. */
-function Exposure() {
+function Exposure({ value }: { value: number }) {
   const gl = useThree((s) => s.gl)
-  const exposure = useArt((s) => s.exposure)
+  const exposure = value
   useEffect(() => {
     // eslint-disable-next-line react/immutability
     gl.toneMappingExposure = exposure
@@ -248,10 +256,40 @@ export default function Scene() {
 
   const art = useArt()
   const debug = isDebug()
+  const envId = useConfig((s) => s.environment)
+  const preset = ENVIRONMENT_PRESETS[envId]
+  const drop = useConfig((s) => s.stance.drop)
+
+  /**
+   * Quality tier, 0 (weakest) to 2.
+   *
+   * BRIEF §7 risk 3 is "mid-range mobile perf discovered on day 9". Rather than pick a
+   * tier from a device string — which is guesswork and ages badly — PerformanceMonitor
+   * watches the actual frame rate and steps down when it cannot hold. Starting at 1
+   * means a weak device degrades within a second or two rather than starting bad
+   * everywhere.
+   *
+   * The tier drives what is cheap to change and expensive to render: shadow and
+   * environment resolution, and device pixel ratio.
+   */
+  const [tier, setTier] = useState(1)
+
+  // The preset supplies the baseline; the debug panel multiplies on top of it, so
+  // day 7 can dial one scene without silently detuning the other two.
+  const scene = {
+    background: preset.background,
+    fog: preset.fogDensity * (art.fogDensity / 0.055),
+    exposure: preset.exposure * (art.exposure / 1.15),
+    envIntensity: preset.environmentIntensity * art.environmentIntensity,
+    floorColor: preset.floorColor,
+    floorRoughness: preset.floorRoughness,
+    contactOpacity: preset.contactOpacity * (art.contactOpacity / 0.9),
+    contactPoolOpacity: preset.contactPoolOpacity * (art.contactPoolOpacity / 0.4),
+  }
 
   return (
     <Canvas
-      dpr={[1, 2]}
+      dpr={tier >= 2 ? [1, 2] : tier === 1 ? [1, 1.5] : 1}
       // The car is static and the camera only moves when dragged, so drawing at the
       // display refresh rate forever is pure waste — it pins the GPU and heats the
       // machine for frames identical to the last one. On demand, the renderer sleeps
@@ -274,13 +312,22 @@ export default function Scene() {
         toneMapping: THREE.NeutralToneMapping,
       }}
     >
-      <color attach="background" args={['#0a0b0d']} />
+      {/* Steps the tier down when frames are being missed and back up when there is
+          headroom. `flipflops` stops it oscillating on a borderline device. */}
+      <PerformanceMonitor
+        bounds={() => [50, 60]}
+        flipflops={3}
+        onDecline={() => setTier((t) => Math.max(0, t - 1))}
+        onIncline={() => setTier((t) => Math.min(2, t + 1))}
+      />
+
+      <color attach="background" args={[scene.background]} />
       {/* LOOKDEV §8: light exponential fog, so the floor dissolves into the background
           instead of ending in a hard horizon seam that cuts the frame in half. */}
-      <fogExp2 attach="fog" args={['#0a0b0d', fogDensityFor(distance, art.fogDensity)]} />
+      <fogExp2 attach="fog" args={[scene.background, fogDensityFor(distance, scene.fog)]} />
 
-      <EnvironmentIntensity />
-      <Exposure />
+      <EnvironmentIntensity value={scene.envIntensity} />
+      <Exposure value={scene.exposure} />
       <InvalidateOnChange />
       <OffsetForUI />
       {debug && <DebugBridge />}
@@ -294,7 +341,11 @@ export default function Scene() {
             map, and that is day 7. Base colour is §7's 0.06-0.10 linear grey. */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow={false}>
           <planeGeometry args={[80, 80]} />
-          <meshStandardMaterial color={art.floorColor} roughness={art.floorRoughness} metalness={0.05} />
+          <meshStandardMaterial
+            color={scene.floorColor}
+            roughness={scene.floorRoughness}
+            metalness={0.05}
+          />
         </mesh>
 
         {/* LOOKDEV §6: a real car casts a LAYERED shadow, and shipping one uniformly
@@ -310,84 +361,61 @@ export default function Scene() {
             Both bake over a few frames rather than every frame — the car does not move,
             so re-rendering a depth pass continuously is pure waste. Ride height on day 5
             will need this re-triggering. */}
+        {/* Keyed on ride height: these bake over a few frames and then stop, so when
+            the car moves relative to the floor the pass has to run again. Remounting is
+            the cheapest correct trigger drei offers. */}
         <ContactShadows
+          key={`tight-${drop}`}
           position={[0, 0.001, CAR_CENTRE[2]]}
           scale={8}
           far={0.5}
           blur={0.6}
-          opacity={art.contactOpacity}
-          resolution={1024}
+          opacity={scene.contactOpacity}
+          resolution={tier >= 1 ? 1024 : 512}
           frames={debug ? Infinity : 4}
         />
         <ContactShadows
+          key={`pool-${drop}`}
           position={[0, 0.0005, CAR_CENTRE[2]]}
           scale={14}
           far={2}
           blur={art.contactBlur}
-          opacity={art.contactPoolOpacity}
-          resolution={512}
+          opacity={scene.contactPoolOpacity}
+          resolution={tier >= 1 ? 512 : 256}
           frames={debug ? Infinity : 4}
         />
 
+        <Underglow z={CAR_CENTRE[2]} />
+
         {/* LOOKDEV §3: light with reflected shapes, not lights. Long thin bright
             rectangles against a dark surround — the crisp-edged streak they put down
-            the flank is the gloss cue.
+            the flank is the gloss cue, and a dome or a bare HDRI cannot produce it.
 
             Built inline rather than with drei's `preset` prop on purpose: the presets
-            fetch an HDRI from a third-party CDN at runtime, which is a slow, fragile
-            dependency to put in front of a portfolio piece. This is self-contained. */}
-        {/* `frames={1}` bakes the environment once, which is what production wants —
-            a single cube render at load. In debug it has to keep re-baking, or dragging
-            a Lightformer intensity slider changes nothing visible and day 7's whole
-            iteration loop is dead on arrival. */}
-        <Environment resolution={512} frames={debug ? Infinity : 1}>
-          {/* KEY — nose-to-tail strip, high above. Does the work on the paint. */}
-          <Lightformer
-            form="rect"
-            intensity={art.keyIntensity}
-            color="#f2f6ff"
-            scale={[10, 1.1]}
-            position={[0, 6, 0]}
-            rotation={[Math.PI / 2, 0, 0]}
-          />
-          {/* FLANK STRIPS — make the side streaks. */}
-          <Lightformer
-            form="rect"
-            intensity={art.flankLeftIntensity}
-            color="#e8f0ff"
-            scale={[9, 0.8]}
-            position={[-5, 3, 0]}
-            rotation={[0, Math.PI / 2, 0]}
-          />
-          <Lightformer
-            form="rect"
-            intensity={art.flankRightIntensity}
-            color="#e8f0ff"
-            scale={[9, 0.8]}
-            position={[5, 3, 0]}
-            rotation={[0, -Math.PI / 2, 0]}
-          />
-          {/* REAR 3/4 KICKER — rims the shoulder line, separates car from background. */}
-          <Lightformer
-            form="rect"
-            intensity={art.kickerIntensity}
-            scale={[2, 2]}
-            position={[3.5, 2.2, -5]}
-          />
-          {/* WARM FILL — the cinematography move. Warm shadows against a cool key. */}
-          <Lightformer
-            form="rect"
-            intensity={art.fillIntensity}
-            color="#ffd9b0"
-            scale={[7, 2.6]}
-            position={[-4.5, 0.6, 3]}
-          />
-          {/* NEGATIVE FILL — the dark surround is what makes the streaks read as bright. */}
+            fetch an HDRI from a third-party CDN at runtime, which is a slow and fragile
+            dependency to put in front of a portfolio piece. This is self-contained.
+
+            Keyed on the preset id so switching scenes re-bakes the cube once. */}
+        <Environment key={envId} resolution={tier >= 1 ? 512 : 256} frames={debug ? Infinity : 1}>
+          {preset.lightformers.map((l, i) => (
+            <Lightformer
+              key={i}
+              form={l.form}
+              intensity={l.intensity}
+              color={l.color}
+              scale={l.scale}
+              position={l.position}
+              rotation={rotationOf(l)}
+            />
+          ))}
+          {/* NEGATIVE FILL — the dark surround. Not optional: the dark bands between
+              the streaks are what make the bright streaks read as bright. */}
           <mesh scale={40}>
             <sphereGeometry />
-            <meshBasicMaterial color="#0a0b0d" side={THREE.BackSide} />
+            <meshBasicMaterial color={preset.surround} side={THREE.BackSide} />
           </mesh>
         </Environment>
+
       </Suspense>
 
       <OrbitControls

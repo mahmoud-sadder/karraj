@@ -1,11 +1,12 @@
 import { useConfig } from '../state/config'
+import { ENVIRONMENT_PRESETS, ENVIRONMENTS } from '../three/environments'
 import { FINISHES, RIM_FINISHES } from '../three/finishes'
 
 /**
  * TEMPORARY — day 6 replaces this with the schema-driven panel and its five control
- * primitives. It exists so day 4's features are reachable without the debug flag.
+ * primitives. It exists so the features are reachable without the debug flag.
  *
- * LOOKDEV §12's rule still holds even here: colour swatches sit on a neutral mid-grey
+ * LOOKDEV §12 rule 4 still holds even here: colour swatches sit on a neutral mid-grey
  * chip, never on the dark glass, because against near-black every colour reads lighter
  * and more saturated than it actually is.
  */
@@ -18,6 +19,12 @@ const PAINT_PRESETS = [
   { name: 'Sand', hex: '#b39167' },
   { name: 'Forest', hex: '#1f4034' },
 ] as const
+
+/**
+ * Lowest the body can go before its splitter clips the floor. Measured: at 90 mm the
+ * lowest body vertex reaches y = -0.0014, so this keeps a few millimetres in hand.
+ */
+const MAX_DROP = 0.085
 
 const RIM_LABELS: Record<(typeof RIM_FINISHES)[number], string> = {
   silver: 'silver',
@@ -43,11 +50,39 @@ function Chip({
       onClick={onClick}
       aria-pressed={active}
       className={`rounded-md px-2 py-1 font-mono text-[10px] tracking-widest uppercase transition ${
-        active ? 'bg-white/90 text-neutral-900' : 'text-neutral-300 hover:bg-white/10 hover:text-white'
+        active
+          ? 'bg-white/90 text-neutral-900'
+          : 'text-neutral-300 hover:bg-white/10 hover:text-white'
       }`}
     >
       {children}
     </button>
+  )
+}
+
+function Swatch({
+  color,
+  onChange,
+  label,
+}: {
+  color: string
+  onChange: (v: string) => void
+  label: string
+}) {
+  return (
+    <label
+      className="h-6 w-6 shrink-0 cursor-pointer rounded-full ring-1 ring-white/25 hover:ring-white/60"
+      style={{ backgroundColor: color }}
+      title={label}
+    >
+      <input
+        type="color"
+        value={color}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-6 w-6 cursor-pointer opacity-0"
+        aria-label={label}
+      />
+    </label>
   )
 }
 
@@ -68,8 +103,7 @@ export default function VehicleControls() {
   return (
     <div className="flex flex-col gap-3">
       <Section label="paint">
-        {/* §12 rule 4: swatches on a neutral mid-grey chip, never on the dark panel —
-            against near-black every colour reads lighter than it is. */}
+        {/* §12 rule 4: swatches on a neutral mid-grey chip, never on the dark panel. */}
         <div className="flex flex-wrap items-center gap-2 rounded-lg bg-neutral-500/25 p-2">
           {PAINT_PRESETS.map((p) => (
             <button
@@ -90,9 +124,7 @@ export default function VehicleControls() {
           <label className="relative h-7 w-7 cursor-pointer overflow-hidden rounded-full ring-1 ring-white/25 hover:ring-white/60">
             <span
               className="block h-full w-full"
-              style={{
-                background: 'conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)',
-              }}
+              style={{ background: 'conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)' }}
             />
             <input
               type="color"
@@ -102,16 +134,29 @@ export default function VehicleControls() {
               aria-label="Custom paint colour"
             />
           </label>
-          <Chip active={c.twoTone} onClick={() => c.setTwoTone(!c.twoTone)}>
-            two-tone
-          </Chip>
         </div>
         <div className="flex flex-wrap gap-1">
           {FINISHES.map((f) => (
-            <Chip key={f} active={f === c.paint1.finish} onClick={() => c.setPaintFinish('paint1', f)}>
+            <Chip
+              key={f}
+              active={f === c.paint1.finish}
+              onClick={() => c.setPaintFinish('paint1', f)}
+            >
               {f}
             </Chip>
           ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Chip active={c.twoTone} onClick={() => c.setTwoTone(!c.twoTone)}>
+            two-tone
+          </Chip>
+          {c.twoTone && (
+            <Swatch
+              color={c.paint2.color}
+              onChange={(v) => c.setPaintColor('paint2', v)}
+              label="Secondary paint colour"
+            />
+          )}
         </div>
       </Section>
 
@@ -122,19 +167,11 @@ export default function VehicleControls() {
               {RIM_LABELS[f]}
             </Chip>
           ))}
-          <label
-            className="ml-1 h-6 w-6 cursor-pointer rounded-full ring-1 ring-white/25"
-            style={{ backgroundColor: c.wheels.caliperColor }}
-            title="Caliper colour"
-          >
-            <input
-              type="color"
-              value={c.wheels.caliperColor}
-              onChange={(e) => c.setWheels({ caliperColor: e.target.value })}
-              className="h-6 w-6 cursor-pointer opacity-0"
-              aria-label="Caliper colour"
-            />
-          </label>
+          <Swatch
+            color={c.wheels.caliperColor}
+            onChange={(v) => c.setWheels({ caliperColor: v })}
+            label="Caliper colour"
+          />
         </div>
       </Section>
 
@@ -151,25 +188,72 @@ export default function VehicleControls() {
         />
       </Section>
 
+      <Section
+        label={`ride height · ${
+          c.stance.drop === 0 ? 'stock' : `${Math.round(c.stance.drop * 1000)} mm lower`
+        }`}
+      >
+        <input
+          type="range"
+          min={0}
+          max={MAX_DROP}
+          step={0.005}
+          value={c.stance.drop}
+          onChange={(e) => c.setDrop(Number(e.target.value))}
+          aria-label="Ride height"
+          className="w-full accent-white"
+        />
+      </Section>
+
       <Section label="lights">
         <div className="flex items-center gap-2">
           <Chip active={c.lights.on} onClick={() => c.setLights({ on: !c.lights.on })}>
             {c.lights.on ? 'on' : 'off'}
           </Chip>
-          <label
-            className="h-6 w-6 cursor-pointer rounded-full ring-1 ring-white/25"
-            style={{ backgroundColor: c.lights.headlightColor }}
-            title="Headlight colour"
-          >
-            <input
-              type="color"
-              value={c.lights.headlightColor}
-              onChange={(e) => c.setLights({ headlightColor: e.target.value })}
-              className="h-6 w-6 cursor-pointer opacity-0"
-              aria-label="Headlight colour"
-            />
-          </label>
+          <Swatch
+            color={c.lights.headlightColor}
+            onChange={(v) => c.setLights({ headlightColor: v })}
+            label="Headlight colour"
+          />
         </div>
+      </Section>
+
+      <Section label="underglow">
+        <div className="flex items-center gap-2">
+          <Chip active={c.underglow.on} onClick={() => c.setUnderglow({ on: !c.underglow.on })}>
+            {c.underglow.on ? 'on' : 'off'}
+          </Chip>
+          <Swatch
+            color={c.underglow.color}
+            onChange={(v) => c.setUnderglow({ color: v })}
+            label="Underglow colour"
+          />
+          {c.underglow.on && (
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={c.underglow.intensity}
+              onChange={(e) => c.setUnderglow({ intensity: Number(e.target.value) })}
+              aria-label="Underglow intensity"
+              className="min-w-0 flex-1 accent-white"
+            />
+          )}
+        </div>
+      </Section>
+
+      <Section label="scene">
+        <div className="flex flex-wrap gap-1">
+          {ENVIRONMENTS.map((id) => (
+            <Chip key={id} active={id === c.environment} onClick={() => c.setEnvironment(id)}>
+              {ENVIRONMENT_PRESETS[id].label}
+            </Chip>
+          ))}
+        </div>
+        <p className="text-[11px] leading-snug text-neutral-500">
+          {ENVIRONMENT_PRESETS[c.environment].description}
+        </p>
       </Section>
     </div>
   )

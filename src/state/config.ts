@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 
+import type { EnvironmentId } from '../three/environments'
 import type { Finish, RimFinish } from '../three/finishes'
 
 /**
@@ -40,6 +41,26 @@ export interface LightsConfig {
   headlightColor: string
 }
 
+export interface StanceConfig {
+  /**
+   * Metres the body drops relative to the wheels. Positive lowers.
+   * Jordan's DVLD treats suspension changes as a registrable modification (day 9).
+   */
+  drop: number
+}
+
+export interface UnderglowConfig {
+  /**
+   * OFF by default, deliberately. LOOKDEV §11 puts underglow "on probation": a visible
+   * glowing ring is the single most common gaming-peripheral signifier and fights the
+   * light-band language the rest of the scene is built on. Shipped as a faint floor
+   * bounce, never a ring.
+   */
+  on: boolean
+  color: string
+  intensity: number
+}
+
 export interface Config {
   paint1: PaintConfig
   paint2: PaintConfig
@@ -52,6 +73,9 @@ export interface Config {
   wheels: WheelConfig
   glass: GlassConfig
   lights: LightsConfig
+  stance: StanceConfig
+  underglow: UnderglowConfig
+  environment: EnvironmentId
 }
 
 export type PaintSlot = 'paint1' | 'paint2'
@@ -63,6 +87,9 @@ export interface ConfigStore extends Config {
   setWheels: (patch: Partial<WheelConfig>) => void
   setTint: (tint: number) => void
   setLights: (patch: Partial<LightsConfig>) => void
+  setDrop: (drop: number) => void
+  setUnderglow: (patch: Partial<UnderglowConfig>) => void
+  setEnvironment: (environment: EnvironmentId) => void
   reset: () => void
 }
 
@@ -73,6 +100,9 @@ export const DEFAULT_CONFIG: Config = {
   wheels: { finish: 'gloss_black', color: '#2a2d31', caliperColor: '#8f1420' },
   glass: { tint: 0.35 },
   lights: { on: true, headlightColor: '#cfe4ff' },
+  stance: { drop: 0 },
+  underglow: { on: false, color: '#19c6ff', intensity: 0.6 },
+  environment: 'garage',
 }
 
 export const useConfig = create<ConfigStore>()(
@@ -86,6 +116,9 @@ export const useConfig = create<ConfigStore>()(
     setWheels: (patch) => set((s) => ({ wheels: { ...s.wheels, ...patch } })),
     setTint: (tint) => set((s) => ({ glass: { ...s.glass, tint } })),
     setLights: (patch) => set((s) => ({ lights: { ...s.lights, ...patch } })),
+    setDrop: (drop) => set((s) => ({ stance: { ...s.stance, drop } })),
+    setUnderglow: (patch) => set((s) => ({ underglow: { ...s.underglow, ...patch } })),
+    setEnvironment: (environment) => set({ environment }),
     reset: () => set(DEFAULT_CONFIG),
   })),
 )
