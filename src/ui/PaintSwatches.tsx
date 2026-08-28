@@ -1,4 +1,5 @@
 import { useConfig } from '../state/config'
+import { FINISHES } from '../three/finishes'
 
 /**
  * TEMPORARY — day 6 replaces this with the schema-driven panel and its five control
@@ -21,7 +22,12 @@ const PRESETS = [
 
 export default function PaintSwatches() {
   const color = useConfig((s) => s.paint1.color)
+  const finish = useConfig((s) => s.paint1.finish)
+  const twoTone = useConfig((s) => s.twoTone)
+  const color2 = useConfig((s) => s.paint2.color)
   const setPaintColor = useConfig((s) => s.setPaintColor)
+  const setPaintFinish = useConfig((s) => s.setPaintFinish)
+  const setTwoTone = useConfig((s) => s.setTwoTone)
 
   return (
     <div className="pointer-events-auto flex flex-col gap-3 rounded-xl border border-white/10 bg-neutral-500/15 p-3 backdrop-blur-xl">
@@ -62,8 +68,59 @@ export default function PaintSwatches() {
         </label>
       </div>
 
+      <div className="flex justify-center gap-1">
+        {FINISHES.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setPaintFinish('paint1', f)}
+            aria-pressed={f === finish}
+            className={`rounded-md px-2 py-1 font-mono text-[10px] tracking-widest uppercase transition ${
+              f === finish
+                ? 'bg-white/90 text-neutral-900'
+                : 'text-neutral-300 hover:bg-white/10 hover:text-white'
+            }`}
+          >
+            {f}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-center gap-3 border-t border-white/10 pt-2">
+        <button
+          type="button"
+          onClick={() => setTwoTone(!twoTone)}
+          aria-pressed={twoTone}
+          className={`rounded-md px-2 py-1 font-mono text-[10px] tracking-widest uppercase transition ${
+            twoTone ? 'bg-white/90 text-neutral-900' : 'text-neutral-300 hover:bg-white/10'
+          }`}
+        >
+          two-tone
+        </button>
+
+        {twoTone && (
+          <label className="flex cursor-pointer items-center gap-2">
+            <span className="font-mono text-[10px] tracking-widest text-neutral-300 uppercase">
+              second
+            </span>
+            <span
+              className="block h-6 w-6 rounded-full ring-1 ring-white/25"
+              style={{ backgroundColor: color2 }}
+            >
+              <input
+                type="color"
+                value={color2}
+                onChange={(e) => setPaintColor('paint2', e.target.value)}
+                className="h-6 w-6 cursor-pointer opacity-0"
+                aria-label="Secondary paint colour"
+              />
+            </span>
+          </label>
+        )}
+      </div>
+
       <p className="text-center font-mono text-[10px] tracking-widest text-neutral-300 uppercase">
-        paint1 &middot; {color}
+        paint1 &middot; {color} &middot; {finish}
       </p>
     </div>
   )

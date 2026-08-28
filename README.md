@@ -6,8 +6,8 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 2 of 10. Scene, material driver and config store are in; paint colour
-changes live. No finishes, wheels, glass or real UI yet.
+**Status:** day 3 of 10. Six paint finishes, two-tone, and the `?debug=1` art panel.
+No wheels, glass, stance or real UI yet.
 
 **Live:** <https://karraj.pages.dev>
 
@@ -127,6 +127,25 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
    every triangle count in §4.7 are exactly right.
 
 ---
+
+## Debug panel
+
+```
+http://localhost:5173/?debug=1
+```
+
+Every art parameter — exposure, environment intensity, fog, the five Lightformer
+intensities, floor, contact shadows, and all ten knobs of the active paint finish — is
+wired to leva behind that flag. BRIEF §7 names look-dev as risk #1; the mitigation is
+that day 7 becomes dialling and screenshotting rather than writing code under deadline.
+`copy art JSON` puts the current state on the clipboard to paste back into
+`DEFAULT_ART` / `FINISH_SPECS` when the look is locked.
+
+leva is **lazy-loaded**, so it never reaches the production bundle — Vite splits it into
+a 209 kB chunk fetched only when the flag is present.
+
+`<Environment>` also switches from `frames={1}` to continuous re-baking in debug,
+without which dragging a light intensity changes nothing visible.
 
 ## Deployment
 

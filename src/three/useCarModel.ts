@@ -2,7 +2,9 @@ import { useGLTF } from '@react-three/drei'
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 
-import { useConfig, type Config } from '../state/config'
+import { useArt } from '../state/art'
+import { effectivePaint, useConfig, type Config } from '../state/config'
+import { applyPaintFinish, disposeFlakeVariants } from './finishes'
 
 /**
  * Loads car.glb and hands back a scene whose materials are safe to mutate.
@@ -32,23 +34,6 @@ const MODEL_URL = '/models/car.glb'
 export const PAINT_SLUGS = ['paint1', 'paint2'] as const
 
 /**
- * Gloss, from the finish table in LOOKDEV §5.
- *
- * Applied as the day-2 default because the asset ships its paint at `metalness: 1.0`
- * (it was authored as the "Carmine Candy" variant). Changing base colour on a fully
- * metallic material reads as tinted chrome rather than paint, so the milestone
- * "one colour changes" would look broken without it. The other five finishes, and the
- * table that drives them, are day 3.
- */
-const GLOSS = {
-  metalness: 0.0,
-  roughness: 0.28,
-  clearcoat: 1.0,
-  clearcoatRoughness: 0.03,
-  envMapIntensity: 1.3,
-} as const
-
-/**
  * Upgrades a material to MeshPhysicalMaterial without losing anything.
  *
  * Clearcoat, sheen and iridescence — the whole of LOOKDEV §5 — live on
@@ -74,15 +59,17 @@ export interface CarModel {
   scene: THREE.Group
   /** slug → the one material instance every mesh with that slug shares. */
   materials: Map<string, THREE.MeshPhysicalMaterial>
+  /** The asset's own Powdercoat_N flake map (§4.4), shared by every paint finish. */
+  flakeMap: THREE.Texture | null
 }
 
 /** Writes the config onto the materials. Pure side effect; no allocation per call. */
-function applyConfig(materials: Map<string, THREE.MeshPhysicalMaterial>, config: Config) {
+function applyConfig(model: CarModel, config: Config) {
   for (const slug of PAINT_SLUGS) {
-    const material = materials.get(slug)
+    const material = model.materials.get(slug)
     if (!material) continue
-    // setStyle with 'srgb' matches how the hex was authored; three works in linear.
-    material.color.setStyle(config[slug].color, THREE.SRGBColorSpace)
+    const paint = effectivePaint(config, slug)
+    applyPaintFinish(material, paint.finish, paint.color, model.flakeMap)
   }
 }
 
@@ -107,14 +94,18 @@ export function useCarModel(): CarModel {
       let material = materials.get(slug)
       if (!material) {
         material = toPhysical(source)
-        if ((PAINT_SLUGS as readonly string[]).includes(slug)) Object.assign(material, GLOSS)
         materials.set(slug, material)
       }
       mesh.material = material
     })
 
-    applyConfig(materials, useConfig.getState())
-    return { scene: root, materials }
+    // Captured before any finish is applied: this is the asset's Powdercoat_N, the
+    // metallic-flake normal map that already ships in the GLB (§4.4). Never author one.
+    const flakeMap = materials.get('paint1')?.normalMap ?? null
+
+    const model: CarModel = { scene: root, materials, flakeMap }
+    applyConfig(model, useConfig.getState())
+    return model
   }, [scene])
 
   useEffect(() => {
@@ -122,11 +113,18 @@ export function useCarModel(): CarModel {
     // writes straight to the material — no reconciliation, no re-render.
     const unsubscribe = useConfig.subscribe(
       (s) => s as Config,
-      (config) => applyConfig(model.materials, config),
+      (config) => applyConfig(model, config),
       { fireImmediately: true },
     )
     return unsubscribe
   }, [model])
+
+  useEffect(() => {
+    // The debug panel edits the finish tables live. Re-applying the current config on
+    // every art change is what makes dragging a roughness slider show up immediately.
+    return useArt.subscribe(() => applyConfig(model, useConfig.getState()))
+  }, [model])
+
 
   useEffect(() => {
     // Materials are cloned per mount, so they are this hook's to dispose. Geometry
@@ -134,6 +132,7 @@ export function useCarModel(): CarModel {
     const { materials } = model
     return () => {
       for (const material of materials.values()) material.dispose()
+      disposeFlakeVariants()
     }
   }, [model])
 

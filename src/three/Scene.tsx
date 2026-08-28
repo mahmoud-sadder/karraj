@@ -1,8 +1,9 @@
 import { ContactShadows, Environment, Lightformer, OrbitControls } from '@react-three/drei'
-import { Canvas } from '@react-three/fiber'
-import { Suspense } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
+import { Suspense, useEffect } from 'react'
 import * as THREE from 'three'
 
+import { isDebug, useArt } from '../state/art'
 import { useCarModel } from './useCarModel'
 
 /**
@@ -25,13 +26,13 @@ const CAR_CENTRE: [number, number, number] = [0, 0.63, 0.238]
 const FOV = 30
 
 /**
- * Fog reference point. BASE_FOG_DENSITY is the density that reads as a light haze
- * with the camera at BASE_DISTANCE; `fogDensityFor` scales it to the real framing
- * distance. Framing itself is solved in `fitDistance` — these two are only the anchor
- * the fog is calibrated against, not the camera distance.
+ * Fog reference distance. The art store's `fogDensity` is authored as "the density
+ * that reads as a light haze with the camera at BASE_DISTANCE"; `fogDensityFor`
+ * rescales it to whatever distance the viewport actually needs. This is only the
+ * anchor the fog is calibrated against — the camera distance itself comes from
+ * `fitDistance`.
  */
 const BASE_DISTANCE = 6.2
-const BASE_FOG_DENSITY = 0.055
 
 /** Fallback aspect when there is no window to measure (never hit in the browser). */
 const BASE_ASPECT = 16 / 9
@@ -116,21 +117,57 @@ function Car() {
 }
 
 /**
+ * Scene-level environment intensity.
+ *
+ * three exposes this on the Scene, which is the correct lever: it scales every
+ * material's environment contribution at once, so it stays orthogonal to the
+ * per-finish `envMapIntensity` values in the LOOKDEV table rather than fighting them.
+ */
+function EnvironmentIntensity() {
+  const scene = useThree((s) => s.scene)
+  const intensity = useArt((s) => s.environmentIntensity)
+  useEffect(() => {
+    // Mutating a three.js object is the intended way to drive the renderer from React;
+    // the lint rule is aimed at React state, which this is not.
+    // eslint-disable-next-line react/immutability
+    scene.environmentIntensity = intensity
+  }, [scene, intensity])
+  return null
+}
+
+/** Tone-mapping exposure, live-editable from the debug panel. */
+function Exposure() {
+  const gl = useThree((s) => s.gl)
+  const exposure = useArt((s) => s.exposure)
+  useEffect(() => {
+    // eslint-disable-next-line react/immutability
+    gl.toneMappingExposure = exposure
+  }, [gl, exposure])
+  return null
+}
+
+/**
  * Exponential fog is a function of absolute distance, so a density that reads as a
  * light haze with the camera at 6 m swallows the car whole once a portrait viewport
  * pushes it out past 20. Scaling by BASE_DISTANCE/distance holds the amount of fog
  * *at the car* constant, which is what the value was tuned against; the floor still
  * fades out behind it either way.
+ *
+ * `authored` is the density as dialled at BASE_DISTANCE — the art store's value, so
+ * the debug slider stays meaningful at every viewport size.
  */
-function fogDensityFor(aspect: number): number {
-  return (BASE_FOG_DENSITY * BASE_DISTANCE) / fitDistance(aspect)
+function fogDensityFor(aspect: number, authored: number): number {
+  return (authored * BASE_DISTANCE) / fitDistance(aspect)
 }
 
 export default function Scene() {
   // Read once at mount. A placeholder viewer does not need to re-frame on rotate;
-  // day 2's camera rig will own that properly.
+  // the camera rig will own that properly later.
   const aspect =
     typeof window === 'undefined' ? BASE_ASPECT : window.innerWidth / window.innerHeight
+
+  const art = useArt()
+  const debug = isDebug()
 
   return (
     <Canvas
@@ -144,13 +181,15 @@ export default function Scene() {
         // LOOKDEV §4: Neutral, never ACES. ACES turns a user's #e01010 into brown,
         // which for a paint configurator is a functional bug, not a taste call.
         toneMapping: THREE.NeutralToneMapping,
-        toneMappingExposure: 1.15,
       }}
     >
       <color attach="background" args={['#0a0b0d']} />
       {/* LOOKDEV §8: light exponential fog, so the floor dissolves into the background
           instead of ending in a hard horizon seam that cuts the frame in half. */}
-      <fogExp2 attach="fog" args={['#0a0b0d', fogDensityFor(aspect)]} />
+      <fogExp2 attach="fog" args={['#0a0b0d', fogDensityFor(aspect, art.fogDensity)]} />
+
+      <EnvironmentIntensity />
+      <Exposure />
 
       <Suspense fallback={null}>
         <Car />
@@ -161,7 +200,7 @@ export default function Scene() {
             map, and that is day 7. Base colour is §7's 0.06-0.10 linear grey. */}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow={false}>
           <planeGeometry args={[80, 80]} />
-          <meshStandardMaterial color="#31353b" roughness={0.45} metalness={0.05} />
+          <meshStandardMaterial color={art.floorColor} roughness={art.floorRoughness} metalness={0.05} />
         </mesh>
 
         {/* LOOKDEV §6: a car with no contact shadow reads as a sticker on the floor.
@@ -171,8 +210,8 @@ export default function Scene() {
           position={[0, 0.001, CAR_CENTRE[2]]}
           scale={11}
           far={1.6}
-          blur={2.2}
-          opacity={0.72}
+          blur={art.contactBlur}
+          opacity={art.contactOpacity}
           resolution={1024}
         />
 
@@ -183,11 +222,15 @@ export default function Scene() {
             Built inline rather than with drei's `preset` prop on purpose: the presets
             fetch an HDRI from a third-party CDN at runtime, which is a slow, fragile
             dependency to put in front of a portfolio piece. This is self-contained. */}
-        <Environment resolution={512} frames={1}>
+        {/* `frames={1}` bakes the environment once, which is what production wants —
+            a single cube render at load. In debug it has to keep re-baking, or dragging
+            a Lightformer intensity slider changes nothing visible and day 7's whole
+            iteration loop is dead on arrival. */}
+        <Environment resolution={512} frames={debug ? Infinity : 1}>
           {/* KEY — nose-to-tail strip, high above. Does the work on the paint. */}
           <Lightformer
             form="rect"
-            intensity={6}
+            intensity={art.keyIntensity}
             color="#f2f6ff"
             scale={[10, 1.1]}
             position={[0, 6, 0]}
@@ -196,7 +239,7 @@ export default function Scene() {
           {/* FLANK STRIPS — make the side streaks. */}
           <Lightformer
             form="rect"
-            intensity={3}
+            intensity={art.flankLeftIntensity}
             color="#e8f0ff"
             scale={[9, 0.8]}
             position={[-5, 3, 0]}
@@ -204,18 +247,23 @@ export default function Scene() {
           />
           <Lightformer
             form="rect"
-            intensity={2}
+            intensity={art.flankRightIntensity}
             color="#e8f0ff"
             scale={[9, 0.8]}
             position={[5, 3, 0]}
             rotation={[0, -Math.PI / 2, 0]}
           />
           {/* REAR 3/4 KICKER — rims the shoulder line, separates car from background. */}
-          <Lightformer form="rect" intensity={8} scale={[2, 2]} position={[3.5, 2.2, -5]} />
+          <Lightformer
+            form="rect"
+            intensity={art.kickerIntensity}
+            scale={[2, 2]}
+            position={[3.5, 2.2, -5]}
+          />
           {/* WARM FILL — the cinematography move. Warm shadows against a cool key. */}
           <Lightformer
             form="rect"
-            intensity={1}
+            intensity={art.fillIntensity}
             color="#ffd9b0"
             scale={[7, 2.6]}
             position={[-4.5, 0.6, 3]}
