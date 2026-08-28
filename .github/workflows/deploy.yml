@@ -18,6 +18,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # Lifted to job level so the deploy step's `if:` can test it. A step cannot
+      # read an `env:` it declares itself, and `secrets` is not available in `if:`.
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v5
 
@@ -38,7 +42,13 @@ jobs:
       # The asset pipeline does NOT run in CI. public/models/car.glb is committed,
       # so a deploy never depends on the Khronos repo being reachable, and the
       # bytes that ship are the bytes that were verified locally.
+      #
+      # Deploying is optional. Lint and build above are the real gate, and they run
+      # for everyone; the Cloudflare secrets only exist on the owner's repo. Without
+      # this guard a fork — or this repo before the secrets are added — reports a red
+      # X for a step that was never going to work, which buries genuine failures.
       - name: Deploy
+        if: env.CF_API_TOKEN != ''
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -47,3 +57,11 @@ jobs:
             pages deploy dist
             --project-name=karraj
             --branch=${{ github.head_ref || github.ref_name }}
+
+      - name: Deploy skipped
+        if: env.CF_API_TOKEN == ''
+        run: |
+          echo "### Deploy skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`CLOUDFLARE_API_TOKEN\` is not set, so nothing was published." >> "$GITHUB_STEP_SUMMARY"
+          echo "Lint and build still ran and passed. See docs/DEPLOY.md step B." >> "$GITHUB_STEP_SUMMARY"
