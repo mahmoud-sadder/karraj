@@ -79,6 +79,33 @@ const KHRONOS_LOGO_SHA256 =
 const KHRONOS_LOGO_EXPECTED_EMISSIVE_USES = 6
 const KHRONOS_LOGO_EXPECTED_BASECOLOR_USES = 1
 
+/**
+ * Cabin rearrangement: centre-drive diamond → conventional 2+2.
+ *
+ * CarConcept is authored with a McLaren F1 seating position — driver in the middle at
+ * the front, two passengers flanking behind, one at the rear — and the steering wheel
+ * sits at x=0.00 to match. Correct for the concept, wrong for anything meant to read as
+ * an ordinary car, which is what this project needs.
+ *
+ * The four seats are genuinely separate connected components inside each seat mesh, so
+ * they can be moved independently. Positions below were measured off the source asset;
+ * targets put seat edges at x = ±0.70 against door cards starting at ±0.81.
+ *
+ * Set REARRANGE_CABIN to false to ship the asset's own layout.
+ */
+const REARRANGE_CABIN = true
+
+const SEAT_MOVES = [
+  { label: 'front centre → front left', from: [0.0, 0.61], to: [-0.42, 0.45] },
+  { label: 'middle right → front right', from: [0.51, -0.06], to: [0.42, 0.45] },
+  { label: 'middle left  → rear left', from: [-0.51, -0.06], to: [-0.42, -0.7] },
+  { label: 'rear centre  → rear right', from: [0.0, -0.84], to: [0.42, -0.7] },
+]
+
+/** The driving position moves with the driver's seat, or the wheel ends up in the aisle. */
+const DRIVER_SHIFT_X = -0.42
+const DRIVER_NODES = /^Interior(Steering|Pedal)/
+
 /** Nodes carrying Khronos marks as geometry. Note the space in "License Plate". */
 const DELETE_NODES = ['License Plate', 'InteriorSteeringEmblem']
 
@@ -463,6 +490,12 @@ async function main() {
     } else warn('Tireside has no normalTexture')
   }
 
+  // ── 4d. Cabin: centre-drive diamond → 2+2 ──────────────────────────────────
+  if (REARRANGE_CABIN) {
+    step('4d', 'Rearrange cabin from centre-drive diamond to 2+2')
+    rearrangeCabin(root)
+  }
+
   // ── 5. Normalise material names to stable slugs (§4.1) ─────────────────────
   step(5, 'Normalise material names to stable slugs (§4.1)')
   {
@@ -752,6 +785,220 @@ async function main() {
 
   report(before, after, Date.now() - t0)
   await writeFile(STATS_PATH, JSON.stringify({ before, after }, null, 2))
+}
+
+/**
+ * Moves each seat, and the driving position with it.
+ *
+ * Seats share a mesh (they are grouped by material, not by position), so this works at
+ * vertex level: weld by position to find connected components, match each component's
+ * centroid to a move, then translate. The steering column and pedals are separate
+ * NODES, so those are a transform change rather than surgery.
+ *
+ * Translations are expressed in world space but must be written back in LOCAL space,
+ * so the node's 3x3 linear part is properly inverted rather than assumed to be
+ * axis-aligned. It is not: this asset is authored Z-up and the scene applies the
+ * conversion, so local index 2 is height, not depth. Assuming correspondence sent the
+ * seats vertically — floating above the roof and sunk under the floor.
+ */
+function rearrangeCabin(root) {
+  const nodes = []
+  const collect = (node, parentMatrix) => {
+    const world = mat4Multiply(parentMatrix, node.getMatrix())
+    nodes.push([node, world])
+    node.listChildren().forEach((child) => collect(child, world))
+  }
+  const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  for (const scene of root.listScenes()) scene.listChildren().forEach((c) => collect(c, IDENTITY))
+
+  // Driving position: a node translation, applied to the TOP-MOST matching node only.
+  // InteriorSteeringWheel01-04 are children of InteriorSteeringCylinder, which also
+  // matches, so shifting every match compounded and moved the wheel twice as far as
+  // the seat. The world-space check below is what caught it.
+  const parentOf = new Map()
+  for (const [node] of nodes) for (const child of node.listChildren()) parentOf.set(child, node)
+  const hasMatchingAncestor = (node) => {
+    for (let p = parentOf.get(node); p; p = parentOf.get(p)) {
+      if (DRIVER_NODES.test(p.getName())) return true
+    }
+    return false
+  }
+
+  const worldXBefore = new Map(
+    nodes.filter(([n]) => DRIVER_NODES.test(n.getName())).map(([n, w]) => [n, w[12]]),
+  )
+
+  let moved = 0
+  for (const [node, world] of nodes) {
+    if (!DRIVER_NODES.test(node.getName())) continue
+    if (hasMatchingAncestor(node)) continue
+    // The node's own translation is in its PARENT's space, so the shift has to be
+    // converted through the parent's linear part, not the node's.
+    const parentLinear = invertLinear3(mat4Multiply(world, invertTRS(node.getMatrix())))
+    if (!parentLinear) continue
+    const t = node.getTranslation()
+    node.setTranslation([
+      t[0] + parentLinear[0] * DRIVER_SHIFT_X,
+      t[1] + parentLinear[1] * DRIVER_SHIFT_X,
+      t[2] + parentLinear[2] * DRIVER_SHIFT_X,
+    ])
+    moved++
+  }
+  // Verify the shift actually landed where intended, in world space, for every driver
+  // node including the nested ones that were deliberately skipped.
+  const recomputed = []
+  const recollect = (node, parentMatrix) => {
+    const world = mat4Multiply(parentMatrix, node.getMatrix())
+    recomputed.push([node, world])
+    node.listChildren().forEach((child) => recollect(child, world))
+  }
+  for (const scene of root.listScenes()) scene.listChildren().forEach((c) => recollect(c, IDENTITY))
+
+  let worstDrift = 0
+  let worstNode = ''
+  for (const [node, world] of recomputed) {
+    const before = worldXBefore.get(node)
+    if (before === undefined) continue
+    const drift = Math.abs(world[12] - before - DRIVER_SHIFT_X)
+    if (drift > worstDrift) {
+      worstDrift = drift
+      worstNode = node.getName()
+    }
+  }
+  if (worstDrift > 1e-3) {
+    throw new BuildError(
+      `driving position moved incorrectly: ${worstNode} is off by ${worstDrift.toFixed(3)} m ` +
+        `(expected every driver node to shift exactly ${DRIVER_SHIFT_X} m in world x)`,
+    )
+  }
+  note(`driving position: ${moved} root nodes shifted ${DRIVER_SHIFT_X} m in x`)
+  note(`all ${worldXBefore.size} driver nodes verified in world space (max drift ${worstDrift.toExponential(1)})`)
+
+  // Seats: per-component vertex translation.
+  for (const [node, world] of nodes) {
+    const mesh = node.getMesh()
+    if (!mesh || !/Seat/i.test(node.getName())) continue
+
+    const inverseLinear = invertLinear3(world)
+    if (!inverseLinear) throw new BuildError(`${node.getName()}: singular transform`)
+
+    for (const prim of mesh.listPrimitives()) {
+      const position = prim.getAttribute('POSITION')
+      const indices = prim.getIndices()
+      const count = indices ? indices.getCount() : position.getCount()
+
+      // Union-find over vertices, welded by exact position.
+      const parent = []
+      const byKey = new Map()
+      const find = (a) => {
+        while (parent[a] !== a) a = parent[a] = parent[parent[a]]
+        return a
+      }
+      const union = (a, b) => {
+        a = find(a)
+        b = find(b)
+        if (a !== b) parent[b] = a
+      }
+      const el = [0, 0, 0]
+      const keyOf = (i) => {
+        position.getElement(i, el)
+        const k = `${el[0].toFixed(5)},${el[1].toFixed(5)},${el[2].toFixed(5)}`
+        if (!byKey.has(k)) byKey.set(k, parent.push(parent.length) - 1)
+        return byKey.get(k)
+      }
+      const vertexGroup = new Array(position.getCount()).fill(-1)
+      for (let i = 0; i < position.getCount(); i++) vertexGroup[i] = keyOf(i)
+      for (let i = 0; i < count; i += 3) {
+        const a = indices ? indices.getScalar(i) : i
+        const b = indices ? indices.getScalar(i + 1) : i + 1
+        const c = indices ? indices.getScalar(i + 2) : i + 2
+        union(vertexGroup[a], vertexGroup[b])
+        union(vertexGroup[b], vertexGroup[c])
+      }
+
+      // Component centroids in WORLD space, so they can be matched to the moves.
+      const sums = new Map()
+      for (let i = 0; i < position.getCount(); i++) {
+        const g = find(vertexGroup[i])
+        position.getElement(i, el)
+        const wx = world[0] * el[0] + world[4] * el[1] + world[8] * el[2] + world[12]
+        const wz = world[2] * el[0] + world[6] * el[1] + world[10] * el[2] + world[14]
+        const acc = sums.get(g) ?? [0, 0, 0]
+        acc[0] += wx
+        acc[1] += wz
+        acc[2]++
+        sums.set(g, acc)
+      }
+
+      const shiftFor = new Map()
+      for (const [g, [sxw, szw, n]] of sums) {
+        const cx = sxw / n
+        const cz = szw / n
+        let best = null
+        let bestDist = Infinity
+        for (const move of SEAT_MOVES) {
+          const d = (cx - move.from[0]) ** 2 + (cz - move.from[1]) ** 2
+          if (d < bestDist) {
+            bestDist = d
+            best = move
+          }
+        }
+        // Only move components that clearly belong to a seat position; small stray
+        // bits far from every seat are left alone rather than flung across the cabin.
+        shiftFor.set(g, bestDist < 0.35 * 0.35 ? best : null)
+      }
+
+      for (let i = 0; i < position.getCount(); i++) {
+        const move = shiftFor.get(find(vertexGroup[i]))
+        if (!move) continue
+        position.getElement(i, el)
+        const dWorld = [move.to[0] - move.from[0], 0, move.to[1] - move.from[1]]
+        el[0] += inverseLinear[0] * dWorld[0] + inverseLinear[3] * dWorld[1] + inverseLinear[6] * dWorld[2]
+        el[1] += inverseLinear[1] * dWorld[0] + inverseLinear[4] * dWorld[1] + inverseLinear[7] * dWorld[2]
+        el[2] += inverseLinear[2] * dWorld[0] + inverseLinear[5] * dWorld[1] + inverseLinear[8] * dWorld[2]
+        position.setElement(i, el)
+      }
+    }
+  }
+  for (const move of SEAT_MOVES) note(move.label)
+}
+
+/** Inverse of the upper-left 3x3 of a column-major mat4, as a 9-element column-major mat3. */
+function invertLinear3(m) {
+  const a = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]]
+  const det =
+    a[0] * (a[4] * a[8] - a[5] * a[7]) -
+    a[3] * (a[1] * a[8] - a[2] * a[7]) +
+    a[6] * (a[1] * a[5] - a[2] * a[4])
+  if (Math.abs(det) < 1e-12) return null
+  const d = 1 / det
+  return [
+    (a[4] * a[8] - a[5] * a[7]) * d,
+    (a[2] * a[7] - a[1] * a[8]) * d,
+    (a[1] * a[5] - a[2] * a[4]) * d,
+    (a[5] * a[6] - a[3] * a[8]) * d,
+    (a[0] * a[8] - a[2] * a[6]) * d,
+    (a[2] * a[3] - a[0] * a[5]) * d,
+    (a[3] * a[7] - a[4] * a[6]) * d,
+    (a[1] * a[6] - a[0] * a[7]) * d,
+    (a[0] * a[4] - a[1] * a[3]) * d,
+  ]
+}
+
+/** Inverse of a TRS matrix, adequate for walking back up one level of the graph. */
+function invertTRS(m) {
+  const inv = invertLinear3(m)
+  if (!inv) return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+  const tx = m[12], ty = m[13], tz = m[14]
+  return [
+    inv[0], inv[1], inv[2], 0,
+    inv[3], inv[4], inv[5], 0,
+    inv[6], inv[7], inv[8], 0,
+    -(inv[0] * tx + inv[3] * ty + inv[6] * tz),
+    -(inv[1] * tx + inv[4] * ty + inv[7] * tz),
+    -(inv[2] * tx + inv[5] * ty + inv[8] * tz),
+    1,
+  ]
 }
 
 /** Column-major mat4 product, a * b. */
