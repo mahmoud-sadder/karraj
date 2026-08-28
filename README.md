@@ -6,8 +6,8 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 3 of 10. Six paint finishes, two-tone, and the `?debug=1` art panel.
-No wheels, glass, stance or real UI yet.
+**Status:** day 4 of 10. Six paint finishes, two-tone, rim finishes, two-layer window
+tint and light control. No stance, presets or real UI yet.
 
 **Live:** <https://karraj.pages.dev>
 
@@ -127,6 +127,33 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
    every triangle count in §4.7 are exactly right.
 
 ---
+
+## Glass without `transmission`
+
+`KHR_materials_transmission` is stripped in the pipeline — it forces an extra
+render-target pass every frame, 8-15 ms on a mid-range Android. The obvious
+replacement, one alpha-blended material, fails for a subtler reason: three multiplies
+the *entire* outgoing radiance by `opacity`, specular included, so reflections fade out
+as tint rises and 80% tint reads as a dark hole in the bodywork.
+
+Two layers over one shared geometry decouple them:
+
+| layer | |
+|---|---|
+| tint | `MeshBasicMaterial`, unlit, alpha-blended, `depthWrite: false`, order 10 |
+| reflection | black base, `metalness: 1`, **additive** blending, `depthWrite: false`, order 11 |
+
+Additive blending is the point — the reflection layer only ever *adds* light, so it is
+unaffected by how opaque the tint beneath it is. Measured over the glass pixels, peak
+brightness falls 245 → 215 across 0-95% tint: the film blocks light while the
+reflection survives.
+
+The tint layer is deliberately **unlit**. Cloning the physical glass material and
+zeroing `envMapIntensity` looks equivalent and is not — it still renders a shaded
+surface that gets *brighter* as opacity rises, which is the opposite of tint film.
+
+Past 85% tint the whole `Interior*` subtree leaves the frame, which measures at
+**−43 draw calls and −22,562 triangles per frame** (−36% and −11.5%).
 
 ## VIN → vehicle → 3D model
 

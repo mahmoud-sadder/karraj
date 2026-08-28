@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { DEFAULT_ART, useArt } from '../state/art'
 import { useConfig } from '../state/config'
-import { FINISHES, type Finish, type FinishSpec } from '../three/finishes'
+import { FINISHES, RIM_FINISHES, type Finish, type FinishSpec, type RimFinish } from '../three/finishes'
 
 /**
  * The `?debug=1` art-direction panel.
@@ -89,6 +89,37 @@ export default function DebugPanel() {
       label: 'paint2 finish',
       options: [...FINISHES],
       onChange: (v: Finish) => useConfig.getState().setPaintFinish('paint2', v),
+    },
+  })
+
+  useControls('vehicle', {
+    rimFinish: {
+      value: config.wheels.finish,
+      options: [...RIM_FINISHES],
+      onChange: (v: RimFinish) => useConfig.getState().setWheels({ finish: v }),
+    },
+    rimColor: {
+      value: config.wheels.color,
+      onChange: (v: string) => useConfig.getState().setWheels({ color: v }),
+    },
+    caliperColor: {
+      value: config.wheels.caliperColor,
+      onChange: (v: string) => useConfig.getState().setWheels({ caliperColor: v }),
+    },
+    windowTint: {
+      value: config.glass.tint,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      onChange: (v: number) => useConfig.getState().setTint(v),
+    },
+    lightsOn: {
+      value: config.lights.on,
+      onChange: (v: boolean) => useConfig.getState().setLights({ on: v }),
+    },
+    headlightColor: {
+      value: config.lights.headlightColor,
+      onChange: (v: string) => useConfig.getState().setLights({ headlightColor: v }),
     },
   })
 

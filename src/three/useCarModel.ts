@@ -2,9 +2,18 @@ import { useGLTF } from '@react-three/drei'
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 
-import { useArt } from '../state/art'
+import { isDebug, useArt } from '../state/art'
 import { effectivePaint, useConfig, type Config } from '../state/config'
-import { applyPaintFinish, disposeFlakeVariants } from './finishes'
+import {
+  applyCaliperColor,
+  applyGlassTint,
+  applyLights,
+  applyPaintFinish,
+  applyRimFinish,
+  captureLightBaseline,
+  createGlassMaterials,
+  type LightBaseline,
+} from './finishes'
 
 /**
  * Loads car.glb and hands back a scene whose materials are safe to mutate.
@@ -56,27 +65,77 @@ function toPhysical(source: THREE.Material): THREE.MeshPhysicalMaterial {
 }
 
 export interface CarModel {
-  scene: THREE.Group
+  scene: THREE.Object3D
   /** slug → the one material instance every mesh with that slug shares. */
   materials: Map<string, THREE.MeshPhysicalMaterial>
   /** The asset's own Powdercoat_N flake map (§4.4), shared by every paint finish. */
   flakeMap: THREE.Texture | null
+  glass: { tint: THREE.MeshBasicMaterial; reflection: THREE.MeshPhysicalMaterial } | null
+  /** Emissive values as authored, so "lights off" can restore exactly. */
+  lightBaseline: LightBaseline
+  /** The Interior* subtree, hidden wholesale once the glass is dark enough. */
+  interiorNodes: THREE.Object3D[]
 }
+
+/** Threshold past which the cabin is genuinely not visible through the glass. */
+const INTERIOR_CULL_TINT = 0.85
 
 /** Writes the config onto the materials. Pure side effect; no allocation per call. */
 function applyConfig(model: CarModel, config: Config) {
+
   for (const slug of PAINT_SLUGS) {
     const material = model.materials.get(slug)
     if (!material) continue
     const paint = effectivePaint(config, slug)
     applyPaintFinish(material, paint.finish, paint.color, model.flakeMap)
   }
+
+  applyRimFinish(
+    model.materials.get('rim_spoke'),
+    model.materials.get('rim_lip'),
+    config.wheels.finish,
+    config.wheels.color,
+  )
+  applyCaliperColor(model.materials.get('caliper'), config.wheels.caliperColor)
+
+  if (model.glass) {
+    applyGlassTint(model.glass.tint, model.glass.reflection, config.glass.tint)
+  }
+
+  applyLights(model.materials, model.lightBaseline, config.lights.on, config.lights.headlightColor)
+
+  // BRIEF §6's free win: past this tint the cabin is genuinely not visible, so ~30
+  // meshes and ~25k triangles can leave the frame entirely. One line, and it is the
+  // largest single saving available on mobile.
+  const hideInterior = config.glass.tint > INTERIOR_CULL_TINT
+  for (const node of model.interiorNodes) node.visible = !hideInterior
 }
 
-export function useCarModel(): CarModel {
-  const { scene } = useGLTF(MODEL_URL)
+/**
+ * One model per source scene, cached.
+ *
+ * `useMemo` is NOT a guarantee that a factory runs once — React may discard and
+ * recompute it, and StrictMode deliberately double-invokes it in development. Building
+ * mutable, effect-observed objects there produced two independent sets of cloned
+ * materials: the store subscription closed over one instance while the scene rendered
+ * the other, so every colour and tint write landed on an invisible copy. It looked like
+ * "the subscription is not firing" and was nothing of the sort.
+ *
+ * Keying on the source scene fixes it by construction. A WeakMap because `useGLTF`
+ * already caches that scene globally, so the derived model should live and die with it
+ * rather than being disposed on unmount and left dangling for the next mount.
+ */
+const MODEL_CACHE = new WeakMap<THREE.Object3D, CarModel>()
 
-  const model = useMemo<CarModel>(() => {
+function buildCarModel(scene: THREE.Object3D): CarModel {
+  const cached = MODEL_CACHE.get(scene)
+  if (cached) return cached
+  const built = createCarModel(scene)
+  MODEL_CACHE.set(scene, built)
+  return built
+}
+
+function createCarModel(scene: THREE.Object3D): CarModel {
     // Clone the graph so the cached original is never touched. `clone(true)` is
     // enough here: there are no skinned meshes in this asset, so SkeletonUtils and
     // its bone-rebinding are not needed.
@@ -102,11 +161,53 @@ export function useCarModel(): CarModel {
     // Captured before any finish is applied: this is the asset's Powdercoat_N, the
     // metallic-flake normal map that already ships in the GLB (§4.4). Never author one.
     const flakeMap = materials.get('paint1')?.normalMap ?? null
+    const lightBaseline = captureLightBaseline(materials)
 
-    const model: CarModel = { scene: root, materials, flakeMap }
+    // ── Glass: duplicate each pane so two materials share one geometry ────────
+    // The clone references the SAME BufferGeometry, so this costs draw calls and
+    // nothing else — no extra vertex data reaches the GPU.
+    let glass: CarModel['glass'] = null
+    const glassSource = materials.get('glass')
+    if (glassSource) {
+      glass = createGlassMaterials(glassSource)
+      const panes: THREE.Mesh[] = []
+      root.traverse((object) => {
+        const mesh = object as THREE.Mesh
+        if (mesh.isMesh && (mesh.material as THREE.Material)?.name === 'glass') panes.push(mesh)
+      })
+      for (const pane of panes) {
+        pane.material = glass.tint
+        pane.renderOrder = 10
+        const reflectionPane = pane.clone()
+        reflectionPane.material = glass.reflection
+        reflectionPane.renderOrder = 11
+        reflectionPane.name = `${pane.name}__reflection`
+        pane.parent?.add(reflectionPane)
+      }
+      materials.delete('glass')
+    }
+
+    // The Interior* naming is guaranteed by the pipeline, which asserts that no node
+    // was renamed or merged — this lookup is only safe because of that.
+    const interiorNodes: THREE.Object3D[] = []
+    root.traverse((object) => {
+      if (object.name.startsWith('Interior')) interiorNodes.push(object)
+    })
+
+    const model: CarModel = { scene: root, materials, flakeMap, glass, lightBaseline, interiorNodes }
     applyConfig(model, useConfig.getState())
     return model
-  }, [scene])
+}
+
+export function useCarModel(): CarModel {
+  const { scene } = useGLTF(MODEL_URL)
+  const model = useMemo<CarModel>(() => buildCarModel(scene), [scene])
+
+  useEffect(() => {
+    // Under ?debug=1 only: the material map and glass layers on the console, so a
+    // finish can be poked at directly while dialling look-dev on day 7.
+    if (isDebug()) (globalThis as unknown as { karraj: CarModel }).karraj = model
+  }, [model])
 
   useEffect(() => {
     // Imperative, outside React's render cycle. Fires on every store change and
@@ -125,16 +226,6 @@ export function useCarModel(): CarModel {
     return useArt.subscribe(() => applyConfig(model, useConfig.getState()))
   }, [model])
 
-
-  useEffect(() => {
-    // Materials are cloned per mount, so they are this hook's to dispose. Geometry
-    // and textures still belong to the useGLTF cache — do NOT dispose those.
-    const { materials } = model
-    return () => {
-      for (const material of materials.values()) material.dispose()
-      disposeFlakeVariants()
-    }
-  }, [model])
 
   return model
 }

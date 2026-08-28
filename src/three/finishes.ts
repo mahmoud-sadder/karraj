@@ -175,3 +175,206 @@ export function applyPaintFinish(
 
   material.needsUpdate = true
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wheels
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const RIM_FINISHES = [
+  'silver', 'gloss_black', 'matte_black', 'gunmetal', 'chrome', 'bronze',
+] as const
+export type RimFinish = (typeof RIM_FINISHES)[number]
+
+interface RimSpec {
+  metalness: number
+  roughness: number
+  clearcoat: number
+  /** How far the finish drags the user's colour toward its own base. */
+  tintToward: string
+  tintAmount: number
+  envMapIntensity: number
+}
+
+/**
+ * Rim finishes are their own table rather than reusing the paint one.
+ *
+ * Wheels sit in a wheel arch — mostly in shadow, seen at a glancing angle, and always
+ * against tyre rubber. A paint finish calibrated for a large convex bonnet reads far
+ * too bright there. These are darker and rougher across the board for that reason.
+ */
+const RIM_SPECS: Record<RimFinish, RimSpec> = {
+  silver:      { metalness: 1.0, roughness: 0.28, clearcoat: 0.0, tintToward: '#d9dde2', tintAmount: 0.75, envMapIntensity: 1.2 },
+  gloss_black: { metalness: 0.0, roughness: 0.14, clearcoat: 1.0, tintToward: '#0b0c0e', tintAmount: 0.80, envMapIntensity: 1.1 },
+  matte_black: { metalness: 0.0, roughness: 0.68, clearcoat: 0.0, tintToward: '#131518', tintAmount: 0.80, envMapIntensity: 0.7 },
+  gunmetal:    { metalness: 1.0, roughness: 0.42, clearcoat: 0.0, tintToward: '#3c4046', tintAmount: 0.60, envMapIntensity: 1.0 },
+  chrome:      { metalness: 1.0, roughness: 0.04, clearcoat: 0.0, tintToward: '#ffffff', tintAmount: 0.85, envMapIntensity: 1.6 },
+  bronze:      { metalness: 1.0, roughness: 0.30, clearcoat: 0.0, tintToward: '#8a6a3a', tintAmount: 0.65, envMapIntensity: 1.2 },
+}
+
+export function applyRimFinish(
+  spoke: THREE.MeshPhysicalMaterial | undefined,
+  lip: THREE.MeshPhysicalMaterial | undefined,
+  finish: RimFinish,
+  colorHex: string,
+) {
+  const spec = RIM_SPECS[finish]
+  scratch.setStyle(colorHex, THREE.SRGBColorSpace).lerp(
+    new THREE.Color().setStyle(spec.tintToward, THREE.SRGBColorSpace),
+    spec.tintAmount,
+  )
+
+  for (const material of [spoke, lip]) {
+    if (!material) continue
+    material.color.copy(scratch)
+    material.metalness = spec.metalness
+    material.roughness = spec.roughness
+    material.clearcoat = spec.clearcoat
+    material.envMapIntensity = spec.envMapIntensity
+    material.needsUpdate = true
+  }
+
+  // The lip is the polished outer edge and stays brighter than the spokes whatever
+  // finish is chosen — that contrast is what stops a wheel reading as one flat disc.
+  if (lip) {
+    lip.roughness = Math.max(0.03, spec.roughness * 0.45)
+    lip.metalness = Math.max(spec.metalness, 0.85)
+  }
+}
+
+export function applyCaliperColor(
+  caliper: THREE.MeshPhysicalMaterial | undefined,
+  colorHex: string,
+) {
+  if (!caliper) return
+  caliper.color.setStyle(colorHex, THREE.SRGBColorSpace)
+  caliper.metalness = 0.1
+  caliper.roughness = 0.45
+  caliper.needsUpdate = true
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Glass — the two-layer treatment from BRIEF §6
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Why glass is two materials and not one.
+ *
+ * `KHR_materials_transmission` is the physically correct answer and it is already
+ * stripped in the pipeline: it forces an extra render-target pass every frame, 8-15ms
+ * on a mid-range Android, for one feature.
+ *
+ * The obvious replacement — a single alpha-blended material — fails for a subtler
+ * reason. three multiplies the *entire* outgoing radiance by `opacity`, specular
+ * included. So as tint rises the reflections fade out along with the transparency, and
+ * at 80% you get a dark hole in the bodywork with no highlight at all. It reads as
+ * painted cardboard, not as a tinted window. Real tint film darkens what you see
+ * through the glass; it does not stop the glass reflecting the sky.
+ *
+ * Two layers over the same geometry decouple those:
+ *
+ *   tint       alpha-blended, dark, envMapIntensity 0, depthWrite false, renderOrder 10
+ *   reflection black base, metalness 1, ADDITIVE blending, depthWrite false, order 11
+ *
+ * Additive blending is the key: the reflection layer only ever *adds* light, so it is
+ * unaffected by how opaque the tint layer underneath is. Cost is one extra draw call
+ * per glass mesh, no additional geometry upload and no render targets.
+ */
+export function createGlassMaterials(source: THREE.MeshPhysicalMaterial): {
+  tint: THREE.MeshBasicMaterial
+  reflection: THREE.MeshPhysicalMaterial
+} {
+  // MeshBasicMaterial, not Physical. The tint layer's whole job is to block light, and
+  // an unlit material does exactly (1 - opacity) with nothing else in the way — no IBL,
+  // no dielectric specular, no tone-mapped surprises. Cloning the physical glass here
+  // and zeroing envMapIntensity looked equivalent and was not: it still rendered a
+  // shaded surface that got *brighter* as opacity rose, which is the opposite of a
+  // tint film. It is also cheaper, which matters for a layer drawn twice per pane.
+  const tint = new THREE.MeshBasicMaterial()
+  tint.name = 'glass_tint'
+  tint.transparent = true
+  tint.depthWrite = false
+  tint.color.setRGB(0.015, 0.017, 0.02)
+  tint.side = THREE.DoubleSide
+
+  const reflection = source.clone()
+  reflection.name = 'glass_reflection'
+  reflection.transparent = true
+  reflection.depthWrite = false
+  reflection.blending = THREE.AdditiveBlending
+  reflection.color.setRGB(0, 0, 0) // additive: base colour contributes nothing
+  reflection.metalness = 1
+  reflection.roughness = 0.03
+  reflection.clearcoat = 0
+  reflection.opacity = 1
+  reflection.side = THREE.FrontSide
+
+  return { tint, reflection }
+}
+
+export function applyGlassTint(
+  tint: THREE.MeshBasicMaterial,
+  reflection: THREE.MeshPhysicalMaterial,
+  amount: number,
+) {
+  const t = THREE.MathUtils.clamp(amount, 0, 1)
+  // Never fully clear: even untinted automotive glass is slightly green and never
+  // invisible, and 0 opacity would make the layer pointless.
+  tint.opacity = THREE.MathUtils.lerp(0.18, 0.94, t)
+
+  // Deliberately NOT a function of `t`. Reflection strength is independent of how dark
+  // the film is — that independence is the entire reason for the second layer.
+  reflection.envMapIntensity = 1.35
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lights
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const LIGHT_SLUGS = ['headlight', 'taillight', 'signal', 'dash'] as const
+export type LightSlug = (typeof LIGHT_SLUGS)[number]
+
+/**
+ * Emissive strengths as authored in the asset, captured before anything is changed so
+ * "off" can restore exactly. LOOKDEV §10 sets the bloom threshold at 1.0 in a linear
+ * workspace precisely so that only these blow out and paint highlights do not.
+ */
+export type LightBaseline = Map<LightSlug, { intensity: number; color: THREE.Color }>
+
+export function captureLightBaseline(
+  materials: Map<string, THREE.MeshPhysicalMaterial>,
+): LightBaseline {
+  const baseline: LightBaseline = new Map()
+  for (const slug of LIGHT_SLUGS) {
+    const material = materials.get(slug)
+    if (!material) continue
+    baseline.set(slug, {
+      intensity: material.emissiveIntensity,
+      color: material.emissive.clone(),
+    })
+  }
+  return baseline
+}
+
+export function applyLights(
+  materials: Map<string, THREE.MeshPhysicalMaterial>,
+  baseline: LightBaseline,
+  on: boolean,
+  headlightColor: string,
+) {
+  for (const slug of LIGHT_SLUGS) {
+    const material = materials.get(slug)
+    const base = baseline.get(slug)
+    if (!material || !base) continue
+
+    if (slug === 'headlight') {
+      material.emissive.setStyle(headlightColor, THREE.SRGBColorSpace)
+    } else {
+      material.emissive.copy(base.color)
+    }
+
+    // The dash stays lit with the lights off — it is an interior readout, and killing
+    // it makes the cabin look broken rather than switched off.
+    material.emissiveIntensity = on || slug === 'dash' ? base.intensity : 0
+    material.needsUpdate = true
+  }
+}

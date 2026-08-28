@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 
-import type { Finish } from '../three/finishes'
+import type { Finish, RimFinish } from '../three/finishes'
 
 /**
  * The configuration store — everything the user can change.
@@ -20,6 +20,26 @@ export interface PaintConfig {
   finish: Finish
 }
 
+export interface WheelConfig {
+  finish: RimFinish
+  /** Tints the rim. Ignored by finishes that lerp hard toward their own base. */
+  color: string
+  caliperColor: string
+}
+
+export interface GlassConfig {
+  /**
+   * 0 = clear, 1 = limousine black. Jordan's DVLD caps this at 50% (day 9), which is
+   * why it is stored as a continuous value rather than a set of presets.
+   */
+  tint: number
+}
+
+export interface LightsConfig {
+  on: boolean
+  headlightColor: string
+}
+
 export interface Config {
   paint1: PaintConfig
   paint2: PaintConfig
@@ -29,6 +49,9 @@ export interface Config {
    * than a material change.
    */
   twoTone: boolean
+  wheels: WheelConfig
+  glass: GlassConfig
+  lights: LightsConfig
 }
 
 export type PaintSlot = 'paint1' | 'paint2'
@@ -37,6 +60,9 @@ export interface ConfigStore extends Config {
   setPaintColor: (slot: PaintSlot, color: string) => void
   setPaintFinish: (slot: PaintSlot, finish: Finish) => void
   setTwoTone: (twoTone: boolean) => void
+  setWheels: (patch: Partial<WheelConfig>) => void
+  setTint: (tint: number) => void
+  setLights: (patch: Partial<LightsConfig>) => void
   reset: () => void
 }
 
@@ -44,6 +70,9 @@ export const DEFAULT_CONFIG: Config = {
   paint1: { color: '#b3122a', finish: 'gloss' },
   paint2: { color: '#1a1c20', finish: 'gloss' },
   twoTone: false,
+  wheels: { finish: 'gloss_black', color: '#2a2d31', caliperColor: '#8f1420' },
+  glass: { tint: 0.35 },
+  lights: { on: true, headlightColor: '#cfe4ff' },
 }
 
 export const useConfig = create<ConfigStore>()(
@@ -54,6 +83,9 @@ export const useConfig = create<ConfigStore>()(
     setPaintFinish: (slot, finish) =>
       set((s) => ({ [slot]: { ...s[slot], finish } }) as Partial<ConfigStore>),
     setTwoTone: (twoTone) => set({ twoTone }),
+    setWheels: (patch) => set((s) => ({ wheels: { ...s.wheels, ...patch } })),
+    setTint: (tint) => set((s) => ({ glass: { ...s.glass, tint } })),
+    setLights: (patch) => set((s) => ({ lights: { ...s.lights, ...patch } })),
     reset: () => set(DEFAULT_CONFIG),
   })),
 )
