@@ -9,7 +9,7 @@ Bilingual English / Arabic with genuine RTL.
 **Status:** day 2 of 10. Scene, material driver and config store are in; paint colour
 changes live. No finishes, wheels, glass or real UI yet.
 
-**Live:** _pending first deploy — see [Deployment](#deployment)._
+**Live:** <https://karraj.pages.dev>
 
 ---
 
@@ -132,11 +132,11 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
 
 Cloudflare Pages. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
-There is deliberately **no `_redirects` file**: Cloudflare rejects the usual
-`/* /index.html 200` SPA rule as an infinite loop, the Workers-only replacement
-(`not_found_handling`) is unavailable to Pages configs, and this app has no client-side
-router anyway. The practical consequence is a constraint on the day-8 URL codec — encode
-the build into the **query string or hash**, never a path segment. Details in
+There is deliberately **no `_redirects` file**. Cloudflare rejects the usual
+`/* /index.html 200` SPA rule as an infinite loop, and it turns out to be redundant
+anyway: Pages already serves `index.html` with a 200 for every unmatched path, so deep
+links and hard refreshes work out of the box. Verified against the live deployment.
+Details, including the one thing that would switch that off, in
 [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 ---

@@ -100,8 +100,10 @@ other for the same deployment slot.
 
 ## There is deliberately no `_redirects` file
 
-The usual SPA fallback — `/*  /index.html  200` — **is rejected by Cloudflare**, and not
-as a false positive:
+Two separate reasons, and the second one only became clear after the first real
+deploy.
+
+**It is rejected.** The usual SPA fallback, `/*  /index.html  200`, fails:
 
 ```
 Invalid _redirects configuration:
@@ -109,38 +111,44 @@ Line 4: Infinite loop detected in this rule. This would cause a redirect to stri
 `.html` or `/index` and end up triggering this rule again. [code: 100324]
 ```
 
-Cloudflare's asset router normalises `/index.html` back to `/`, which re-matches `/*`,
-which rewrites to `/index.html` again. Workers rejects the deployment outright; Pages
-reports it at build time and silently ignores the rule, which is worse — you get a green
-build and 404s on every deep link.
+Cloudflare's asset router normalises `/index.html` back to `/`, which re-matches
+`/*`, which rewrites to `/index.html` again. Workers rejects the deployment outright;
+Pages reports it at build time and ignores the rule. There is no way to write it so it
+does not loop — `_redirects` has no negation syntax, and the workaround in
+[workers-sdk#11824](https://github.com/cloudflare/workers-sdk/issues/11824) is to
+rename `index.html`. The Workers-only replacement, `assets.not_found_handling`, is
+unavailable here: a Pages configuration file rejects the whole `assets` block
+(`Configuration file for Pages projects does not support "assets"`).
 
-There is no way to write the rule so it does not loop. `_redirects` has no negation
-syntax, and the workaround in
-[workers-sdk#11824](https://github.com/cloudflare/workers-sdk/issues/11824) is to rename
-`index.html`. The modern replacement, `assets.not_found_handling:
-"single-page-application"`, is a **Workers-only** setting — a Pages configuration file
-rejects the whole `assets` block:
+**It is also unnecessary, because Pages already does this.** Verified against the live
+deployment:
 
 ```
-Configuration file for Pages projects does not support "assets"
+GET /                    200   sha256 66b75f8b…
+GET /no/such/route       200   sha256 66b75f8b…
+GET /deep/nested/path    200   sha256 66b75f8b…
+local dist/index.html          sha256 66b75f8b…
 ```
 
-None of which matters, because **Karraj has no client-side router.** There are no paths to
-fall back from, so a 404 on an unrouted path is the correct response, and the file was
-solving a problem this app does not have.
+Every unmatched path returns `index.html` byte-for-byte, with status 200. That is
+Pages' default behaviour for a project with **no `404.html`** in its output. So deep
+links and hard refreshes already work.
+
+> ⚠️ Adding `public/404.html` later would switch this off and start returning real
+> 404s for unmatched paths. If you ever add a custom 404 page, re-test deep links.
 
 ### What this means for the day-8 URL codec
 
-This is now a constraint on `src/state/codec.ts`, not just a preference:
+Path segments (`/build/<config>`) **do** work on Pages, so this is a portability
+recommendation rather than a hard constraint:
 
-- **Encode the build into the query string or the hash** — `/?c=<config>` or `/#<config>`.
-  Both resolve to `/`, which is a real file, so they survive a hard refresh with no
-  server-side routing at all.
-- **Do not use path segments** — `/build/<config>` would 404 on refresh.
-
-If a real router ever does land, the options are: move the deployment to Workers static
-assets and set `not_found_handling`, or add a Pages Function that serves `index.html` for
-unmatched routes. Re-adding `_redirects` is not one of them.
+- **Preferred: query string or hash** — `/?c=<config>` or `/#<config>`. These resolve
+  to a real file and survive a hard refresh on *any* static host, including ones with
+  no SPA fallback (plain GitHub Pages, S3 without a rewrite rule, `python -m
+  http.server`). It keeps the deployment target swappable, which given how much
+  friction Cloudflare caused on day 1 is worth something.
+- **Path segments work today** but tie you to a host that does SPA fallback, and they
+  silently break the moment someone adds a `404.html`.
 
 ### On the model cache header
 
