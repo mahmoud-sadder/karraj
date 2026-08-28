@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { isDebug, useArt } from '../state/art'
 import { useConfig } from '../state/config'
 import { viewLayout } from '../ui/layout'
+import { useDirection } from '../ui/useDirection'
 import { ENVIRONMENT_PRESETS, rotationOf } from './environments'
 import Underglow from './Underglow'
 import { useCarModel } from './useCarModel'
@@ -180,22 +181,22 @@ function DebugBridge() {
  * Both axes matter. The rail reduces width on desktop; the bottom sheet reduces height
  * on mobile. Handling only the first hid the whole car behind the sheet on a phone.
  */
-function OffsetForUI() {
+function OffsetForUI({ rtl }: { rtl: boolean }) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const size = useThree((s) => s.size)
   const invalidate = useThree((s) => s.invalidate)
 
   useEffect(() => {
-    const v = viewLayout(size.width, size.height, FOV)
-    if (v.offsetX <= 0 && v.offsetY <= 0) {
+    const v = viewLayout(size.width, size.height, FOV, rtl)
+    if (v.offsetX === 0 && v.offsetY === 0) {
       camera.clearViewOffset()
     } else {
-      // The aspect must describe the VIRTUAL frame, not the canvas — see ViewLayout.
-      // eslint-disable-next-line react/immutability
-      camera.aspect = v.aspect
+      // fullWidth/fullHeight equal the canvas, so this shifts the frustum without
+      // rescaling it — and crucially without needing camera.aspect to hold a value
+      // R3F does not expect. See ViewLayout for why that mattered.
       camera.setViewOffset(
-        v.fullWidth,
-        v.fullHeight,
+        size.width,
+        size.height,
         v.offsetX,
         v.offsetY,
         size.width,
@@ -206,11 +207,9 @@ function OffsetForUI() {
     invalidate()
     return () => {
       camera.clearViewOffset()
-      // eslint-disable-next-line react/immutability
-      camera.aspect = size.width / size.height
       camera.updateProjectionMatrix()
     }
-  }, [camera, size.width, size.height, invalidate])
+  }, [camera, size.width, size.height, invalidate, rtl])
 
   return null
 }
@@ -247,11 +246,12 @@ export default function Scene() {
   // Framing uses the aspect of the canvas the UI is NOT covering, not the raw viewport.
   // Framing to the full width put roughly half the car underneath the panel — measured
   // at 46.7% covered before this changed.
+  const direction = useDirection()
   const viewport =
     typeof window === 'undefined'
       ? { width: 1600, height: 900 }
       : { width: window.innerWidth, height: window.innerHeight }
-  const layout = viewLayout(viewport.width, viewport.height, FOV)
+  const layout = viewLayout(viewport.width, viewport.height, FOV, direction === 'rtl')
   const distance = fitDistance(layout.tanHalfH, layout.tanHalfV)
 
   const art = useArt()
@@ -329,7 +329,7 @@ export default function Scene() {
       <EnvironmentIntensity value={scene.envIntensity} />
       <Exposure value={scene.exposure} />
       <InvalidateOnChange />
-      <OffsetForUI />
+      <OffsetForUI rtl={direction === 'rtl'} />
       {debug && <DebugBridge />}
 
       <Suspense fallback={null}>

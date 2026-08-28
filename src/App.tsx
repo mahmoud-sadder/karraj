@@ -4,7 +4,7 @@ import { lazy, Suspense, useCallback, useState } from 'react'
 import { isDebug } from './state/art'
 import Scene from './three/Scene'
 import Rail from './ui/Rail'
-import VehicleControls from './ui/VehicleControls'
+import ConfigPanel from './ui/ConfigPanel'
 import VehiclePanel from './ui/VehiclePanel'
 import { useVehicle, vinFromUrl } from './vin/useVehicle'
 
@@ -45,12 +45,12 @@ export default function App() {
         <header className="flex items-baseline justify-between border-b border-white/10 pb-3">
           <h1 className="text-lg font-light tracking-[0.3em] text-neutral-100 uppercase">Karraj</h1>
           <span className="font-mono text-[9px] tracking-[0.2em] text-neutral-600 uppercase">
-            day 4 / 10
+            day 6 / 10
           </span>
         </header>
 
         <VehiclePanel vehicle={vehicle} onSubmit={submitVin} />
-        <VehicleControls />
+        <ConfigPanel />
 
         {/* CC BY 4.0 obliges attribution wherever the model is displayed. */}
         <footer className="mt-auto border-t border-white/10 pt-3 text-[10px] leading-relaxed text-neutral-600">

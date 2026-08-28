@@ -80,6 +80,42 @@ export interface Config {
 
 export type PaintSlot = 'paint1' | 'paint2'
 
+/**
+ * Every addressable setting, as a dotted path.
+ *
+ * A union rather than `string` on purpose: the UI schema references these by path, so a
+ * typo becomes a compile error instead of a control that silently does nothing. It also
+ * becomes the field list for the day-8 URL codec — one place that enumerates the config
+ * surface, rather than three that drift apart.
+ */
+export type ConfigPath =
+  | 'paint1.color'
+  | 'paint1.finish'
+  | 'paint2.color'
+  | 'paint2.finish'
+  | 'twoTone'
+  | 'wheels.finish'
+  | 'wheels.color'
+  | 'wheels.caliperColor'
+  | 'glass.tint'
+  | 'lights.on'
+  | 'lights.headlightColor'
+  | 'stance.drop'
+  | 'underglow.on'
+  | 'underglow.color'
+  | 'underglow.intensity'
+  | 'environment'
+
+export type ConfigValue = string | number | boolean
+
+/** Reads a path out of a config snapshot. */
+export function getPath(config: Config, path: ConfigPath): ConfigValue {
+  const [head, tail] = path.split('.') as [keyof Config, string | undefined]
+  const branch = config[head]
+  if (tail === undefined) return branch as ConfigValue
+  return (branch as unknown as Record<string, ConfigValue>)[tail]
+}
+
 export interface ConfigStore extends Config {
   setPaintColor: (slot: PaintSlot, color: string) => void
   setPaintFinish: (slot: PaintSlot, finish: Finish) => void
@@ -90,6 +126,8 @@ export interface ConfigStore extends Config {
   setDrop: (drop: number) => void
   setUnderglow: (patch: Partial<UnderglowConfig>) => void
   setEnvironment: (environment: EnvironmentId) => void
+  /** Generic setter for the schema-driven UI. Immutable, one level deep. */
+  setPath: (path: ConfigPath, value: ConfigValue) => void
   reset: () => void
 }
 
@@ -119,6 +157,14 @@ export const useConfig = create<ConfigStore>()(
     setDrop: (drop) => set((s) => ({ stance: { ...s.stance, drop } })),
     setUnderglow: (patch) => set((s) => ({ underglow: { ...s.underglow, ...patch } })),
     setEnvironment: (environment) => set({ environment }),
+    setPath: (path, value) =>
+      set((state) => {
+        const [head, tail] = path.split('.') as [keyof Config, string | undefined]
+        if (tail === undefined) return { [head]: value } as unknown as Partial<ConfigStore>
+        return {
+          [head]: { ...(state[head] as object), [tail]: value },
+        } as unknown as Partial<ConfigStore>
+      }),
     reset: () => set(DEFAULT_CONFIG),
   })),
 )

@@ -13,6 +13,10 @@ import { useEffect, useRef, useState } from 'react'
  * across the bottom, which measured at covering 46.7% of the car. Two anchors, and the
  * car buried under one of them.
  *
+ * Anchored with logical properties (`end-0`, `border-s`), so under `dir="rtl"` the rail
+ * moves to the other edge on its own. The camera has to be told about that separately —
+ * see `viewLayout` — because a projection offset has a direction and cannot infer one.
+ *
  * Rule 3 — "recede at rest" — is implemented here too, but softened. §12 suggests ~30%
  * for non-essential chrome; applied to a whole control panel that is unreadable, so the
  * rail settles to 55% and returns to full on any pointer movement or on hover. The
@@ -48,12 +52,12 @@ export default function Rail({ children }: { children: React.ReactNode }) {
       // Mobile: a bottom sheet, because a 380px rail on a 375px phone is the whole screen.
       className={`pointer-events-none absolute z-10 flex flex-col transition-opacity duration-500 hover:opacity-100 ${
         idle ? 'opacity-55' : 'opacity-100'
-      } inset-x-0 bottom-0 max-h-[52vh] md:inset-x-auto md:top-0 md:right-0 md:bottom-0 md:max-h-none`}
+      } inset-x-0 bottom-0 max-h-[52vh] md:inset-x-auto md:top-0 md:bottom-0 md:end-0 md:max-h-none`}
       style={{ scrollbarWidth: 'thin', ['--rail' as string]: `${RAIL_WIDTH}px` }}
       aria-label="Configurator"
     >
       <div
-        className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-white/10 bg-neutral-950/85 p-4 backdrop-blur-xl md:w-[var(--rail)] md:border-l"
+        className="pointer-events-auto flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto border-white/10 bg-neutral-950/85 p-4 backdrop-blur-xl md:w-[var(--rail)] md:border-s"
       >
         {children}
       </div>

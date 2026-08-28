@@ -6,9 +6,9 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 5 of 10. Paint, wheels, glass, lights, ride height, underglow, three
-scene presets and adaptive quality. Schema-driven UI, share URLs and the DVLD layer
-still to come.
+**Status:** day 6 of 10. Paint, wheels, glass, lights, ride height, underglow, three
+scene presets, adaptive quality, and a schema-driven UI. Share URLs, Arabic and the
+DVLD layer still to come.
 
 **Live:** <https://karraj.pages.dev>
 
@@ -128,6 +128,29 @@ Verified against the real file; see the header comment in `tools/prepare-car.mjs
    every triangle count in §4.7 are exactly right.
 
 ---
+
+## The UI is data
+
+BRIEF §6: 11 features across two languages and two form factors is roughly 40 controls,
+and hand-writing each panel is two days of work and inconsistent spacing. So the whole
+configurator is a declarative array in `src/ui/schema.ts`, rendered by one component
+that knows nothing about paint or wheels:
+
+```ts
+{ row: { kind: 'toggle', path: 'twoTone', labelKey: 'paint.twoTone' } },
+{ row: { kind: 'color', path: 'paint2.color', labelKey: 'paint.secondary' },
+  when: (c) => c.twoTone },
+```
+
+Five primitives — Slider, Swatches, Segmented, Toggle, ColorField — and adding a feature
+is three lines. `path` is a typed union of every setting, so referencing one that does
+not exist is a compile error rather than a control that silently does nothing. It also
+becomes the field list for the day-8 URL codec.
+
+Panels use progressive disclosure, one open at a time (§12 rule 7). Everything is laid
+out with CSS **logical properties**, and `dir="rtl"` is verified to mirror the rail, the
+toggle knobs and the camera's framing offset — day 9 adds the Arabic strings, not the
+layout work.
 
 ## Three scene presets
 
