@@ -6,7 +6,8 @@ that tells you which choices are street-legal and which must be registered with 
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 1 of 10. Scaffold and asset pipeline only — no scene yet.
+**Status:** day 2 of 10. Scene, material driver and config store are in; paint colour
+changes live. No finishes, wheels, glass or real UI yet.
 
 **Live:** _pending first deploy — see [Deployment](#deployment)._
 

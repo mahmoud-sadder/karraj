@@ -1,15 +1,16 @@
-import { ContactShadows, Environment, Lightformer, OrbitControls, useGLTF } from '@react-three/drei'
+import { ContactShadows, Environment, Lightformer, OrbitControls } from '@react-three/drei'
 import { Canvas } from '@react-three/fiber'
 import { Suspense } from 'react'
 import * as THREE from 'three'
 
+import { useCarModel } from './useCarModel'
+
 /**
- * PLACEHOLDER VIEWER — day 2 replaces all of this.
+ * The scene shell: canvas, environment, grounding, camera.
  *
- * Just enough to get car.glb on screen and orbitable. There is deliberately no
- * config store, no slug→material map, no `toPhysical` upgrade and no UI; those are
- * `useCarModel.ts` and they are the actual day-2 milestone. Treat this file as
- * disposable.
+ * The lighting rig, floor and fog here are placeholders — day 7 is look-dev day and
+ * replaces all of it with dialled values. The material driver has moved out to
+ * `useCarModel.ts`, which owns the slug→material map and the config subscription.
  *
  * Two things here are NOT disposable and should survive into day 2:
  *   - `preserveDrawingBuffer` (BRIEF §6 — wire it on day 1, it removes the whole
@@ -17,8 +18,6 @@ import * as THREE from 'three'
  *   - the camera discipline in §9 of the look-dev spec: fov 30, target at the
  *     beltline, polar angle clamped off the top-down view
  */
-
-const MODEL_URL = '/models/car.glb'
 
 /** Measured from the built GLB: sits on y=0, centred in x, 0.238 m forward in z. */
 const CAR_CENTRE: [number, number, number] = [0, 0.63, 0.238]
@@ -112,11 +111,9 @@ function framingPosition(aspect: number): [number, number, number] {
 }
 
 function Car() {
-  const { scene } = useGLTF(MODEL_URL)
+  const { scene } = useCarModel()
   return <primitive object={scene} />
 }
-
-useGLTF.preload(MODEL_URL)
 
 /**
  * Exponential fog is a function of absolute distance, so a density that reads as a
