@@ -116,6 +116,23 @@ export function getPath(config: Config, path: ConfigPath): ConfigValue {
   return (branch as unknown as Record<string, ConfigValue>)[tail]
 }
 
+/**
+ * Writes a path into a copy of a config snapshot.
+ *
+ * Pure, and generic over the snapshot type so the store can hand it its own state
+ * (which carries the setters too) and get the same shape back. Untouched branches keep
+ * their object identity, so zustand selectors watching them do not fire.
+ *
+ * The store's `setPath` and the URL codec both go through here. They used to each know
+ * how a dotted path decomposes, which is exactly the kind of duplicated knowledge that
+ * drifts the first time the config grows a third level.
+ */
+export function withPath<T extends Config>(config: T, path: ConfigPath, value: ConfigValue): T {
+  const [head, tail] = path.split('.') as [keyof Config, string | undefined]
+  if (tail === undefined) return { ...config, [head]: value }
+  return { ...config, [head]: { ...(config[head] as object), [tail]: value } }
+}
+
 export interface ConfigStore extends Config {
   setPaintColor: (slot: PaintSlot, color: string) => void
   setPaintFinish: (slot: PaintSlot, finish: Finish) => void
@@ -157,14 +174,7 @@ export const useConfig = create<ConfigStore>()(
     setDrop: (drop) => set((s) => ({ stance: { ...s.stance, drop } })),
     setUnderglow: (patch) => set((s) => ({ underglow: { ...s.underglow, ...patch } })),
     setEnvironment: (environment) => set({ environment }),
-    setPath: (path, value) =>
-      set((state) => {
-        const [head, tail] = path.split('.') as [keyof Config, string | undefined]
-        if (tail === undefined) return { [head]: value } as unknown as Partial<ConfigStore>
-        return {
-          [head]: { ...(state[head] as object), [tail]: value },
-        } as unknown as Partial<ConfigStore>
-      }),
+    setPath: (path, value) => set((state) => withPath(state, path, value)),
     reset: () => set(DEFAULT_CONFIG),
   })),
 )

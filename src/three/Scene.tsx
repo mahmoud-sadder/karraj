@@ -11,8 +11,10 @@ import * as THREE from 'three'
 
 import { isDebug, useArt } from '../state/art'
 import { useConfig } from '../state/config'
+import { useSceneReady } from '../state/loading'
 import { viewLayout } from '../ui/layout'
 import { useDirection } from '../ui/useDirection'
+import { registerCaptureSource } from './capture'
 import { ENVIRONMENT_PRESETS, rotationOf } from './environments'
 import Floor from './Floor'
 import GarageSet from './GarageSet'
@@ -118,6 +120,19 @@ function Car() {
 }
 
 /**
+ * Announces that the scene is up, so the loading cover can leave.
+ *
+ * Mounted INSIDE the Suspense boundary on purpose. React commits a boundary's children
+ * as one unit, so this cannot run until everything beside it has resolved — which makes
+ * it an exact signal rather than a guess at how long loading takes.
+ */
+function SceneReady() {
+  const markReady = useSceneReady((s) => s.markReady)
+  useEffect(() => markReady(), [markReady])
+  return null
+}
+
+/**
  * Frames the car, from the canvas size rather than the window's.
  *
  * The framing has to wait for a size that is actually a size. Measured here: the window
@@ -132,8 +147,10 @@ function Car() {
  * **Re-frames on every size change until the user takes the camera**, which is not the
  * same as "once". Framing once looks equivalent and is not: R3F can report a small but
  * non-zero size while layout settles — 300x150 was observed in this very app — and a
- * one-shot would then frame for a viewport nobody has and never correct itself, leaving
- * the car somewhere off the side of the frame.
+ * one-shot would then frame for a viewport nobody has and never correct itself. The
+ * symptom was a screenshot export containing the garage's tool chest and no car at all.
+ * Re-framing until first interaction also fixes the honest case of someone resizing the
+ * window before touching anything.
  *
  * `engaged` flips on the controls' first `start` event. After that the camera is the
  * user's, and yanking it back to the hero angle because a window changed width would be
@@ -153,6 +170,21 @@ function AutoFraming({ rtl, engaged }: { rtl: boolean; engaged: RefObject<boolea
     invalidate()
   }, [camera, size.width, size.height, rtl, invalidate, engaged])
 
+  return null
+}
+
+/**
+ * Publishes the renderer, camera and sizes to the screenshot exporter, which lives in
+ * the DOM outside the Canvas and cannot reach them through React context — R3F runs a
+ * separate reconciler.
+ *
+ * `state.get` rather than the state itself, so a capture reads the sizes that are
+ * current at the moment the button is pressed rather than the ones that were current
+ * when this last rendered.
+ */
+function CaptureBridge({ tier }: { tier: number }) {
+  const get = useThree((s) => s.get)
+  useEffect(() => registerCaptureSource({ get, tier }), [get, tier])
   return null
 }
 
@@ -330,7 +362,7 @@ export default function Scene() {
       // until something invalidates. Debug keeps 'always' because the environment
       // re-bakes continuously there and leva sliders need to show live.
       frameloop={debug ? 'always' : 'demand'}
-      // No `position` here on purpose — `AutoFraming` owns it, and owns it alone.
+      // No `position` here on purpose — `InitialFraming` owns it, and owns it alone.
       camera={{ fov: FOV, near: 0.1, far: 100 }}
       gl={{
         antialias: true,
@@ -361,10 +393,12 @@ export default function Scene() {
       <OffsetForUI rtl={direction === 'rtl'} />
       <AutoFraming rtl={direction === 'rtl'} engaged={engaged} />
       <Post tier={tier} />
+      <CaptureBridge tier={tier} />
       {debug && <DebugBridge />}
 
       <Suspense fallback={null}>
         <Car />
+        <SceneReady />
 
         {/* §7: semi-reflective polished concrete, broken up by a roughness map.
             A perfectly uniform floor is the giveaway. */}

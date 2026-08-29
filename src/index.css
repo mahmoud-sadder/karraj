@@ -21,3 +21,27 @@ body {
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
+
+/* The loading cover's indeterminate sweep. See ui/Loading.tsx for why it is
+   indeterminate rather than a percentage. */
+@keyframes karraj-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.karraj-sweep {
+  animation: karraj-sweep 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .karraj-sweep {
+    animation: none;
+    transform: translateX(0);
+    width: 100%;
+    opacity: 0.45;
+  }
+}

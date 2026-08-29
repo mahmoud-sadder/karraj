@@ -2,6 +2,7 @@ import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from '@react-three
 import { ToneMappingMode } from 'postprocessing'
 
 import { useArt } from '../state/art'
+import { setCaptureComposer } from './capture'
 
 /**
  * Post-processing, per KARRAJ-LOOKDEV.md §10.
@@ -36,6 +37,11 @@ export default function Post({ tier }: { tier: number }) {
 
   return (
     <EffectComposer
+      // Screenshot export renders through this composer at a larger size, so it needs
+      // the instance. A callback ref rather than a shared object ref because React
+      // calls it with null on unmount, which keeps the module from holding a disposed
+      // composer across a hot reload.
+      ref={setCaptureComposer}
       // Multisampling beats SMAA when it can be afforded; SMAA on the weakest tier only.
       multisampling={tier >= 2 ? 4 : 0}
       enableNormalPass={false}

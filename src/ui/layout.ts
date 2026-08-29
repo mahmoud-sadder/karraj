@@ -19,6 +19,18 @@ export interface ViewLayout {
   /** Half-frustum tangents of the UNCOVERED area, for fitting the car into it. */
   tanHalfH: number
   tanHalfV: number
+  /**
+   * The canvas rectangle the UI is NOT covering, in CSS pixels, origin top-left.
+   *
+   * The camera offset above says how far to shift; this says what the shift was making
+   * room for. Screenshot export needs the second: an exported image has no rail in it,
+   * so it should contain the free rectangle rather than the whole canvas with a blank
+   * strip where the UI used to be.
+   */
+  freeX: number
+  freeY: number
+  freeWidth: number
+  freeHeight: number
 }
 
 /**
@@ -44,10 +56,10 @@ export function viewLayout(
 ): ViewLayout {
   // A zero-size viewport is a normal transient state, not an error: React renders
   // before layout, and an iframe or a restored background tab can report 0x0 for
-  // several frames. Unguarded, `(width - rail) / width` is 0/0, both tangents below are
+  // several frames. Unguarded, `(width - rail) / width` is 0/0, every tangent below is
   // NaN, and the camera distance computed from them is NaN too — at which point
   // OrbitControls damps toward a NaN target forever and the canvas never draws again.
-  // Clamping here is cheaper than making every caller defensive.
+  // Clamping here is cheaper than making four callers defensive.
   const w = Math.max(1, width)
   const h = Math.max(1, height)
 
@@ -67,6 +79,12 @@ export function viewLayout(
   return {
     offsetX,
     offsetY,
+    // The rail sits on the trailing edge, so it eats the right of the canvas in LTR and
+    // the left in RTL. The sheet is always along the bottom.
+    freeX: rtl ? rail : 0,
+    freeY: 0,
+    freeWidth: w - rail,
+    freeHeight: h - sheet,
     // The full canvas subtends the camera's normal frustum; the uncovered part subtends
     // a proportional share of it, and that is what the car has to fit inside.
     tanHalfH: tanV * (w / h) * ((w - rail) / w),

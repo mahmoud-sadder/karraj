@@ -29,3 +29,6 @@ dist-ssr
 
 # Asset pipeline
 tools/.cache/
+
+# Claude Code preview/launch config
+.claude/

@@ -57,6 +57,13 @@ export const en = {
   'env.studio': 'Studio',
   'env.night': 'Night',
 
+  'share.copy': 'Copy link',
+  'share.copied': 'Link copied',
+  'share.save': 'Save image',
+  'share.rendering': 'Rendering',
+  'share.saved': 'Saved',
+  'share.failed': 'Failed',
+
   'value.on': 'On',
   'value.off': 'Off',
   'value.stock': 'Stock',

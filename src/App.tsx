@@ -1,10 +1,11 @@
-import { Loader } from '@react-three/drei'
 import { lazy, Suspense, useCallback, useState } from 'react'
 
 import { isDebug } from './state/art'
 import Scene from './three/Scene'
 import Rail from './ui/Rail'
 import ConfigPanel from './ui/ConfigPanel'
+import Loading from './ui/Loading'
+import ShareBar from './ui/ShareBar'
 import VehiclePanel from './ui/VehiclePanel'
 import { useVehicle, vinFromUrl } from './vin/useVehicle'
 
@@ -22,7 +23,8 @@ export default function App() {
     setVin(next)
     // Keep the VIN in the URL so a decoded vehicle is shareable and survives a refresh.
     // Query parameter rather than path segment, so it needs no server-side routing —
-    // see docs/DEPLOY.md. Same reasoning the day-8 config codec will follow.
+    // see docs/DEPLOY.md. `state/codec.ts` writes `?c=` alongside it on the same
+    // reasoning; both re-read the live URL, so neither clobbers the other's parameter.
     const url = new URL(window.location.href)
     if (next.trim()) url.searchParams.set('vin', next.trim().toUpperCase())
     else url.searchParams.delete('vin')
@@ -32,7 +34,7 @@ export default function App() {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <Scene />
-      <Loader />
+      <Loading />
 
       {isDebug() && (
         <Suspense fallback={null}>
@@ -45,12 +47,13 @@ export default function App() {
         <header className="flex items-baseline justify-between border-b border-white/10 pb-3">
           <h1 className="text-lg font-light tracking-[0.3em] text-neutral-100 uppercase">Karraj</h1>
           <span className="font-mono text-[9px] tracking-[0.2em] text-neutral-600 uppercase">
-            day 6 / 10
+            day 8 / 10
           </span>
         </header>
 
         <VehiclePanel vehicle={vehicle} onSubmit={submitVin} />
         <ConfigPanel />
+        <ShareBar />
 
         {/* CC BY 4.0 obliges attribution wherever the model is displayed. */}
         <footer className="mt-auto border-t border-white/10 pt-3 text-[10px] leading-relaxed text-neutral-600">
