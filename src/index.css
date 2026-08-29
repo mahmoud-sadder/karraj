@@ -4,6 +4,17 @@
   --color-garage-void: #0a0b0d;
   --color-garage-panel: #121417;
   --color-garage-line: #ffffff14;
+
+  /*
+   * Arabic face stack. System fonts rather than a webfont: every current OS ships a
+   * good Arabic face, and BRIEF §5's 0.08 MB font budget buys a subsetted webfont that
+   * would still need a third-party download step in the build. Listed most-preferred
+   * first, with Tahoma as the old-Windows floor — it is ugly but it is always there and
+   * it has the full Arabic range.
+   */
+  --font-arabic:
+    'Noto Sans Arabic', 'Noto Naskh Arabic', 'SF Arabic', 'Geeza Pro', 'Segoe UI',
+    Tahoma, ui-sans-serif, system-ui, sans-serif;
 }
 
 html,
@@ -20,6 +31,41 @@ body {
     ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+}
+
+/*
+ * Arabic typography.
+ *
+ * BRIEF §1 wants "genuine RTL", which is more than mirrored boxes. Two things break
+ * the moment Arabic text lands in a UI designed around Latin letterforms, and both are
+ * handled here rather than by conditionals scattered through the components.
+ *
+ * The attribute selectors sit at specificity (0,2,1), which beats a Tailwind utility's
+ * (0,1,0) without reaching for !important.
+ */
+
+html[lang='ar'] body {
+  font-family: var(--font-arabic);
+}
+
+/*
+ * Arabic is cursive: letters join, and the shape a letter takes depends on its
+ * neighbours. `letter-spacing` forces those joins apart and turns a word into a row of
+ * disconnected glyphs — legible only if you already know what it says. The wide
+ * tracking that gives the Latin UI its look is therefore not a style choice in Arabic,
+ * it is a bug, so every `tracking-*` utility is neutralised.
+ */
+html[lang='ar'] [class*='tracking-'] {
+  letter-spacing: normal;
+}
+
+/*
+ * Monospace faces almost never carry Arabic. Left alone, every `font-mono` label falls
+ * back to some arbitrary system face with different metrics from the rest of the panel,
+ * so the labels and their values stop lining up. Point them at the same stack.
+ */
+html[lang='ar'] .font-mono {
+  font-family: var(--font-arabic);
 }
 
 /* The loading cover's indeterminate sweep. See ui/Loading.tsx for why it is

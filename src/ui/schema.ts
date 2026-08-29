@@ -28,7 +28,12 @@ export type RowSpec =
       min: number
       max: number
       step: number
-      format?: (v: number) => string
+      /**
+       * Takes the translator, because a formatted value is still text: "stock" and
+       * "mm" are words, and a slider that reads `-40 mm` in an otherwise Arabic panel
+       * is the kind of miss a `Record<MessageKey, string>` cannot catch.
+       */
+      format?: (v: number, t: Translator) => string
     }
 
 export interface RowEntry {
@@ -66,6 +71,9 @@ const ENV_OPTIONS: readonly Option[] = ENVIRONMENTS.map((e) => ({
   value: e,
   labelKey: `env.${e}` as MessageKey,
 }))
+
+/** The translator, threaded into formatters. */
+export type Translator = (key: MessageKey) => string
 
 const percent = (v: number) => `${Math.round(v * 100)}%`
 
@@ -131,7 +139,7 @@ export const PANELS: PanelSpec[] = [
           min: 0,
           max: MAX_DROP,
           step: 0.005,
-          format: (v) => (v === 0 ? 'stock' : `-${Math.round(v * 1000)} mm`),
+          format: (v, t) => (v === 0 ? t('value.stock') : `-${Math.round(v * 1000)} ${t('unit.mm')}`),
         },
       },
     ],

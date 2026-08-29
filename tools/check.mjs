@@ -19,7 +19,7 @@
 
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -39,6 +39,8 @@ writeFileSync(
     `export { DEFAULT_CONFIG, getPath } from '../../src/state/config.ts'`,
     `export { PANELS } from '../../src/ui/schema.ts'`,
     `export { viewLayout, RAIL_WIDTH, MD_BREAKPOINT } from '../../src/ui/layout.ts'`,
+    `export { evaluate, RULES, TINT_LIMIT } from '../../src/rules/dvld.ts'`,
+    `export { en, ar, DICTIONARIES, LANGS, DIRECTION } from '../../src/i18n/dictionary.ts'`,
     '',
   ].join('\n'),
 )
@@ -63,6 +65,14 @@ const {
   viewLayout,
   RAIL_WIDTH,
   MD_BREAKPOINT,
+  evaluate,
+  RULES,
+  TINT_LIMIT,
+  en,
+  ar,
+  DICTIONARIES,
+  LANGS,
+  DIRECTION,
 } = await import(pathToFileURL(bundle).href)
 
 const { FIELDS, FINISH_CODES, RIM_CODES, ENV_CODES } = CODEC_TABLES
@@ -433,6 +443,157 @@ check('a phone gets a sheet and no rail; a desktop the reverse', () => {
   const desktop = viewLayout(1600, 900, 30, false)
   assert.equal(desktop.freeHeight, 900, 'no sheet on desktop')
   assert.equal(desktop.freeWidth, 1600 - RAIL_WIDTH)
+})
+
+// ── 7. Translations ──────────────────────────────────────────────────────────
+
+console.log('\ntranslations')
+
+check('every language has every key', () => {
+  const keys = Object.keys(en)
+  for (const lang of LANGS) {
+    const dict = DICTIONARIES[lang]
+    assert.deepEqual(Object.keys(dict).sort(), keys.slice().sort(), `${lang} key set differs`)
+    for (const key of keys) {
+      assert.equal(typeof dict[key], 'string', `${lang}.${key} is not a string`)
+      assert.ok(dict[key].trim().length > 0, `${lang}.${key} is empty`)
+    }
+  }
+  return `${keys.length} keys x ${LANGS.length} languages`
+})
+
+check('no Arabic string is a copy of the English one', () => {
+  // The one honest way an untranslated key survives a `Record<MessageKey, string>`:
+  // paste the English and move on. `lang.switch` is deliberately cross-lingual and
+  // still differs, so no exceptions are needed here.
+  const same = Object.keys(en).filter((key) => en[key] === ar[key])
+  assert.deepEqual(same, [], `untranslated: ${same.join(', ')}`)
+})
+
+check('every message key is actually used', () => {
+  // Two dead keys (`value.on`, `value.off`) shipped for three days before this existed.
+  // Dead keys are the harmless half of the problem — the useful half is that a key
+  // added and never wired up now fails the build instead of translating nothing.
+  const files = []
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (/\.tsx?$/.test(entry.name) && entry.name !== 'dictionary.ts') files.push(full)
+    }
+  }
+  walk(join(ROOT, 'src'))
+  const source = files.map((f) => readFileSync(f, 'utf8')).join('\n')
+
+  // Keys built by template — `finish.${f}` — never appear as literals.
+  const prefixes = new Set(
+    [...source.matchAll(/`([a-zA-Z.]+)\.\$\{/g)].map((m) => m[1]),
+  )
+
+  const unused = Object.keys(en).filter(
+    (key) => !source.includes(`'${key}'`) && !prefixes.has(key.slice(0, key.lastIndexOf('.'))),
+  )
+  assert.deepEqual(unused, [], `unused message keys: ${unused.join(', ')}`)
+  return `${Object.keys(en).length} keys across ${files.length} files`
+})
+
+check('every language declares a direction', () => {
+  for (const lang of LANGS) {
+    assert.ok(['ltr', 'rtl'].includes(DIRECTION[lang]), `${lang} has no direction`)
+  }
+  assert.equal(DIRECTION.ar, 'rtl')
+})
+
+// ── 8. Compliance rules (BRIEF §1) ───────────────────────────────────────────
+
+console.log('\ncompliance rules')
+
+const SEVERITIES = ['prohibited', 'registration', 'permitted']
+const RANK = { prohibited: 0, registration: 1, permitted: 2 }
+
+check('rules are well formed and traceable', () => {
+  const ids = RULES.map((r) => r.id)
+  assert.equal(new Set(ids).size, ids.length, 'duplicate rule id')
+  for (const rule of RULES) {
+    assert.ok(SEVERITIES.includes(rule.severity), `${rule.id}: bad severity`)
+    assert.ok(['dvld', 'general'].includes(rule.source), `${rule.id}: bad source`)
+    // A compliance claim with no citation is an opinion with a dot next to it.
+    for (const key of [rule.titleKey, rule.detailKey]) {
+      assert.ok(key in en, `${rule.id} references missing key ${key}`)
+    }
+  }
+  return `${RULES.length} rules`
+})
+
+check('a stock car breaks nothing', () => {
+  const findings = evaluate(DEFAULT_CONFIG)
+  assert.equal(
+    findings.filter((f) => f.severity === 'prohibited').length,
+    0,
+    'the default configuration must be road legal',
+  )
+  assert.ok(findings.length > 0, 'the panel should say something rather than nothing')
+  return findings.map((f) => f.id).join(', ')
+})
+
+check('the tint cap fires exactly at the limit', () => {
+  const step = FIELDS['glass.tint'].range.step
+  for (let n = 0; n <= Math.round(1 / step); n += 1) {
+    const tint = Math.round(n * step * 100) / 100
+    const flagged = evaluate(setIn(DEFAULT_CONFIG, 'glass.tint', tint)).some((f) => f.id === 'tint')
+    assert.equal(flagged, tint > TINT_LIMIT, `tint ${tint} flagged=${flagged}`)
+  }
+  return `limit ${TINT_LIMIT}, swept in steps of ${step}`
+})
+
+check("BRIEF §1's worked example", () => {
+  // "picking matte black at 80% tint produces: this modification must be registered,
+  //  plus a tint-limit warning"
+  let config = setIn(DEFAULT_CONFIG, 'paint1.color', '#111111')
+  config = setIn(config, 'paint1.finish', 'matte')
+  config = setIn(config, 'glass.tint', 0.8)
+
+  const findings = evaluate(config)
+  const ids = findings.map((f) => f.id)
+  assert.ok(ids.includes('tint'), 'no tint warning')
+  assert.ok(ids.includes('colour'), 'no colour-change finding')
+  assert.ok(ids.includes('matte'), 'no matte finding')
+  // Loudest first: the thing that fails inspection must not sit under the advisories.
+  assert.equal(findings[0].severity, 'prohibited')
+  return ids.join(', ')
+})
+
+check('two-tone is a colour change even on the factory colour', () => {
+  let config = setIn(DEFAULT_CONFIG, 'twoTone', true)
+  config = setIn(config, 'paint2.color', '#101010')
+  assert.ok(evaluate(config).some((f) => f.id === 'colour'))
+
+  // ...but not when the second colour matches the first, which renders as one colour.
+  let matching = setIn(DEFAULT_CONFIG, 'twoTone', true)
+  matching = setIn(matching, 'paint2.color', DEFAULT_CONFIG.paint1.color)
+  assert.equal(evaluate(matching).some((f) => f.id === 'colour'), false)
+})
+
+check('lowering the car is registrable', () => {
+  assert.equal(evaluate(DEFAULT_CONFIG).some((f) => f.id === 'stance'), false)
+  assert.ok(evaluate(setIn(DEFAULT_CONFIG, 'stance.drop', 0.04)).some((f) => f.id === 'stance'))
+})
+
+check('findings are always ordered loudest first', () => {
+  const rand = lcg(31337)
+  for (let i = 0; i < 2000; i += 1) {
+    const findings = evaluate(randomConfig(rand))
+    for (let n = 1; n < findings.length; n += 1) {
+      assert.ok(
+        RANK[findings[n - 1].severity] <= RANK[findings[n].severity],
+        `out of order at ${i}: ${findings.map((f) => f.severity).join(' ')}`,
+      )
+    }
+    for (const finding of findings) {
+      assert.ok(RULES.some((r) => r.id === finding.id), `unknown rule ${finding.id}`)
+    }
+  }
+  return '2000 configurations'
 })
 
 // ── Report ───────────────────────────────────────────────────────────────────

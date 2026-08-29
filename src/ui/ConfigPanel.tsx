@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { t } from '../i18n/dictionary'
+import { useT } from '../state/lang'
 import { getPath, useConfig, type ConfigValue } from '../state/config'
 import { ColorField, Segmented, Slider, Swatches, Toggle } from './primitives'
 import { PANELS, type RowSpec } from './schema'
@@ -18,6 +18,7 @@ import { PANELS, type RowSpec } from './schema'
  */
 
 function Control({ row }: { row: RowSpec }) {
+  const t = useT()
   const value = useConfig((s) => getPath(s, row.path))
   const setPath = useConfig((s) => s.setPath)
   const set = (v: ConfigValue) => setPath(row.path, v)
@@ -44,7 +45,7 @@ function Control({ row }: { row: RowSpec }) {
           min={row.min}
           max={row.max}
           step={row.step}
-          format={row.format}
+          format={row.format && ((v: number) => row.format!(v, t))}
           onChange={set}
         />
       )
@@ -52,6 +53,7 @@ function Control({ row }: { row: RowSpec }) {
 }
 
 export default function ConfigPanel() {
+  const t = useT()
   const config = useConfig()
   const [open, setOpen] = useState<string>(PANELS[0].id)
 

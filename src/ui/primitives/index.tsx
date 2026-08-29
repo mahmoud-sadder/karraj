@@ -1,5 +1,5 @@
 import type { MessageKey } from '../../i18n/dictionary'
-import { t } from '../../i18n/dictionary'
+import { useT } from '../../state/lang'
 
 /**
  * The five control primitives from BRIEF §6.
@@ -21,7 +21,7 @@ export interface Option<T extends string = string> {
   labelKey: MessageKey
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-start font-mono text-[9px] tracking-[0.18em] text-neutral-500 uppercase">
@@ -80,6 +80,7 @@ export function Segmented<T extends string>({
   options: readonly Option<T>[]
   onChange: (v: T) => void
 }) {
+  const t = useT()
   return (
     <Row label={label}>
       <div className="flex flex-wrap gap-1" role="radiogroup" aria-label={label}>
@@ -124,7 +125,24 @@ export function Slider({
   onChange: (v: number) => void
 }) {
   return (
-    <Row label={`${label}${format ? ` · ${format(value)}` : ''}`}>
+    <Row
+      label={
+        <>
+          {label}
+          {/* `<bdi>` isolates the value from the surrounding paragraph direction. A
+              formatted value is a run of digits and punctuation with no strong
+              direction of its own, so in an RTL panel the bidi algorithm is free to
+              reorder it — which is exactly how "9 / 10" elsewhere rendered as
+              "10 / 9". */}
+          {format && (
+            <>
+              {' · '}
+              <bdi>{format(value)}</bdi>
+            </>
+          )}
+        </>
+      }
+    >
       <input
         type="range"
         min={min}

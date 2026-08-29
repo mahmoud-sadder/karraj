@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { t } from '../i18n/dictionary'
 import { useConfig } from '../state/config'
+import { useT } from '../state/lang'
 import { useSceneReady } from '../state/loading'
 import { shareUrl } from '../state/urlConfig'
 import { captureFrame, saveBlob } from '../three/capture'
@@ -92,6 +92,7 @@ function Action({
 }
 
 export default function ShareBar() {
+  const t = useT()
   const direction = useDirection()
   const ready = useSceneReady((s) => s.ready)
   const paint = useConfig((s) => s.paint1)

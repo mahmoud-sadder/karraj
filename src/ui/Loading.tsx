@@ -1,6 +1,7 @@
 import { useProgress } from '@react-three/drei'
 import { useEffect, useState } from 'react'
 
+import { useT } from '../state/lang'
 import { useSceneReady } from '../state/loading'
 
 /**
@@ -29,6 +30,7 @@ import { useSceneReady } from '../state/loading'
 const FADE_MS = 600
 
 export default function Loading() {
+  const t = useT()
   const ready = useSceneReady((s) => s.ready)
   const { errors } = useProgress()
   const [mounted, setMounted] = useState(true)
@@ -57,21 +59,21 @@ export default function Loading() {
       {/* The negative inline-end margin cancels the trailing letter-space that tracking
           adds after the last character. Without it the wordmark sits half a letter-space
           left of the text below it, which is small and, once seen, all you can see. */}
-      <h1 className="-me-[0.45em] text-xl font-light tracking-[0.45em] text-neutral-200 uppercase">
-        Karraj
+      <h1 className="text-xl font-light tracking-[0.45em] text-neutral-200 uppercase ltr:-me-[0.45em]">
+        {t('app.name')}
       </h1>
 
       {failed ? (
         <div className="flex flex-col items-center gap-3 px-8 text-center">
           <p className="max-w-xs text-xs leading-relaxed text-neutral-400">
-            The car model could not be loaded. It may be a network problem.
+            {t('loading.failed')}
           </p>
           <button
             type="button"
             onClick={() => window.location.reload()}
             className="rounded-md bg-white/90 px-3 py-1.5 font-mono text-[10px] tracking-widest text-neutral-900 uppercase transition hover:bg-white"
           >
-            retry
+            {t('loading.retry')}
           </button>
         </div>
       ) : (
@@ -81,7 +83,7 @@ export default function Loading() {
             <div className="karraj-sweep h-full w-1/5 bg-white/70" />
           </div>
           <p className="font-mono text-[9px] tracking-[0.25em] text-neutral-600 uppercase">
-            preparing the car
+            {t('loading.preparing')}
           </p>
         </>
       )}

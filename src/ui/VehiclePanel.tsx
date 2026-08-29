@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { useT } from '../state/lang'
 import type { VehicleState } from '../vin/useVehicle'
 
 /**
@@ -29,6 +30,7 @@ export default function VehiclePanel({
   vehicle: VehicleState
   onSubmit: (vin: string) => void
 }) {
+  const t = useT()
   const [draft, setDraft] = useState(vehicle.vin ?? '')
   const { identity, model, status } = vehicle
 
@@ -44,30 +46,28 @@ export default function VehiclePanel({
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Enter a VIN"
+          placeholder={t('vin.placeholder')}
           spellCheck={false}
-          aria-label="Vehicle identification number"
+          aria-label={t('vin.label')}
           className="min-w-0 flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1.5 font-mono text-xs tracking-wider text-neutral-100 uppercase placeholder:normal-case placeholder:tracking-normal placeholder:text-neutral-600 focus:border-white/30 focus:outline-none"
         />
         <button
           type="submit"
           className="rounded-md bg-white/90 px-3 py-1.5 font-mono text-[10px] tracking-widest text-neutral-900 uppercase transition hover:bg-white"
         >
-          decode
+          {t('vin.decode')}
         </button>
       </form>
 
       {status === 'invalid' && (
         <p className="mt-2 text-xs text-amber-400">
-          {vehicle.problem === 'length'
-            ? `A VIN is 17 characters — that is ${vehicle.vin?.length ?? 0}.`
-            : 'A VIN never contains I, O or Q.'}
+          {vehicle.problem === 'length' ? t('vin.badLength') : t('vin.badCharset')}
         </p>
       )}
 
       {status === 'loading' && (
         <p className="mt-2 font-mono text-[10px] tracking-widest text-neutral-500 uppercase">
-          decoding&hellip;
+          {t('vin.decoding')}
         </p>
       )}
 
@@ -76,25 +76,27 @@ export default function VehiclePanel({
       {status === 'ready' && identity && (
         <div className="mt-3 flex flex-col gap-1.5">
           <Row
-            label="vehicle"
+            label={t('vin.vehicle')}
             value={[identity.year, identity.make, identity.model].filter(Boolean).join(' ') || '—'}
           />
-          {identity.series && <Row label="series" value={identity.series} />}
-          {identity.bodyClass && <Row label="body" value={identity.bodyClass} />}
-          {identity.doors !== null && <Row label="doors" value={String(identity.doors)} />}
-          {identity.plantCountry && <Row label="built in" value={identity.plantCountry} />}
+          {identity.series && <Row label={t('vin.series')} value={identity.series} />}
+          {identity.bodyClass && <Row label={t('vin.body')} value={identity.bodyClass} />}
+          {identity.doors !== null && <Row label={t('vin.doors')} value={String(identity.doors)} />}
+          {identity.plantCountry && (
+            <Row label={t('vin.builtIn')} value={identity.plantCountry} />
+          )}
 
           {vehicle.problem === 'checkdigit' && (
             <p className="mt-1 text-[11px] leading-snug text-amber-400/90">
-              Check digit does not validate. Common outside North America — decoded anyway.
+              {t('vin.checkDigit')}
             </p>
           )}
 
           <div className="mt-2 border-t border-white/10 pt-2">
-            <Row label="3d model" value={model.entry.label} />
+            <Row label={t('vin.model3d')} value={model.entry.label} />
             {model.substituted && (
               <p className="mt-1 text-[11px] leading-snug text-neutral-500">
-                Substituted &mdash; {model.reason}.
+                {t('vin.substituted')} &mdash; {model.reason}.
               </p>
             )}
           </div>
@@ -102,7 +104,7 @@ export default function VehiclePanel({
       )}
 
       <p className="mt-3 border-t border-white/10 pt-2 text-center font-mono text-[9px] tracking-widest text-neutral-600 uppercase">
-        decoder &middot; {vehicle.decoderName}
+        {t('vin.decoder')} &middot; {vehicle.decoderName}
       </p>
     </div>
   )
