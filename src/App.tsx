@@ -79,19 +79,17 @@ export default function App() {
         {/* CC BY 4.0 obliges attribution wherever the model is displayed. The full
             notice is one click away in the credits sheet (§4.9); this keeps it from
             ever being zero-click. */}
-        <footer className="mt-auto flex items-baseline justify-between gap-3 border-t border-white/10 pt-3 text-[10px] text-neutral-600">
+        <footer className="mt-auto border-t border-white/10 pt-3 text-[10px] text-neutral-600">
           <button
             type="button"
             onClick={() => setCredits(true)}
             className="text-start underline decoration-white/20 underline-offset-2 transition hover:text-neutral-400"
           >
-            Car Concept &copy; 2024 Darmstadt Graphics Group GmbH &middot; CC BY 4.0
+            Car Concept &copy; 2024 Darmstadt Graphics Group GmbH{' '}
+            {/* Kept together so a wrap takes the separator with it, rather than
+                leaving a middot dangling at the end of the first line. */}
+            <span className="whitespace-nowrap">&middot; CC BY 4.0</span>
           </button>
-          {/* All digits and punctuation, no strong direction of its own — under RTL
-              the bidi algorithm rendered this as "10 / 9". */}
-          <span dir="ltr" className="shrink-0 font-mono tracking-[0.2em] uppercase">
-            9 / 10
-          </span>
         </footer>
       </Rail>
 
