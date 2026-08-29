@@ -68,6 +68,21 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/**
+ * A short random suffix for exported filenames.
+ *
+ * Without it, every save of the same configuration produced the same name and the
+ * browser asked whether to overwrite the previous one — which it does on every single
+ * save once you are iterating on a look, which is exactly when you save most.
+ * Random rather than a counter or a timestamp: it needs no state, and it stays unique
+ * across tabs and across reloads.
+ */
+function uniqueSuffix(): string {
+  const bytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(3))
+  if (bytes) return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  return Math.random().toString(36).slice(2, 8)
+}
+
 function Action({
   label,
   busy,
@@ -112,8 +127,12 @@ export default function ShareBar() {
     try {
       const { blob, width, height } = await captureFrame({ rtl: direction === 'rtl' })
       // The colour and finish are in the name, so a folder of exports stays legible
-      // without opening them.
-      saveBlob(blob, `karraj-${paint.color.replace('#', '')}-${paint.finish}.png`)
+      // without opening them; the suffix keeps two saves of the same car from
+      // colliding.
+      saveBlob(
+        blob,
+        `karraj-${paint.color.replace('#', '')}-${paint.finish}-${uniqueSuffix()}.png`,
+      )
       reportImage('done', `${width}×${height}`)
     } catch {
       reportImage('failed')
