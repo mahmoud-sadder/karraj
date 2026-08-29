@@ -42,9 +42,19 @@ export function viewLayout(
   fovDeg: number,
   rtl = false,
 ): ViewLayout {
-  const isDesktop = width >= MD_BREAKPOINT
-  const rail = isDesktop ? Math.min(RAIL_WIDTH, width * 0.5) : 0
-  const sheet = isDesktop ? 0 : Math.round(height * SHEET_FRACTION)
+  // A zero-size viewport is a normal transient state, not an error: React renders
+  // before layout, and an iframe or a restored background tab can report 0x0 for
+  // several frames. Unguarded, `(width - rail) / width` is 0/0, both tangents below are
+  // NaN, and the camera distance computed from them is NaN too — at which point
+  // OrbitControls damps toward a NaN target forever and the canvas never draws again.
+  // Clamping here is cheaper than making every caller defensive.
+  const w = Math.max(1, width)
+  const h = Math.max(1, height)
+
+  const isDesktop = w >= MD_BREAKPOINT
+  const rail = isDesktop ? Math.min(RAIL_WIDTH, w * 0.5) : 0
+  // Leave at least one pixel of canvas, so the uncovered area can never be empty.
+  const sheet = isDesktop ? 0 : Math.min(Math.round(h * SHEET_FRACTION), h - 1)
 
   // Shifting the frustum by half the covered width centres the car in what remains.
   // Positive offsetX moves the frustum right, i.e. the car left — correct when the rail
@@ -59,7 +69,7 @@ export function viewLayout(
     offsetY,
     // The full canvas subtends the camera's normal frustum; the uncovered part subtends
     // a proportional share of it, and that is what the car has to fit inside.
-    tanHalfH: tanV * (width / height) * ((width - rail) / width),
-    tanHalfV: tanV * ((height - sheet) / height),
+    tanHalfH: tanV * (w / h) * ((w - rail) / w),
+    tanHalfV: tanV * ((h - sheet) / h),
   }
 }

@@ -6,7 +6,7 @@ import {
   PerformanceMonitor,
 } from '@react-three/drei'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState, type RefObject } from 'react'
 import * as THREE from 'three'
 
 import { isDebug, useArt } from '../state/art'
@@ -115,6 +115,45 @@ function framingPosition(tanHalfH: number, tanHalfV: number): [number, number, n
 function Car() {
   const { scene } = useCarModel()
   return <primitive object={scene} />
+}
+
+/**
+ * Frames the car, from the canvas size rather than the window's.
+ *
+ * The framing has to wait for a size that is actually a size. Measured here: the window
+ * reports 0x0 for the first six renders, which made `(width - rail) / width` a 0/0 and
+ * put the camera at NaN — permanently, because OrbitControls then damps toward a NaN
+ * target every frame and nothing is ever drawn again.
+ *
+ * This is the only thing that writes `camera.position`; the `<Canvas camera>` prop
+ * deliberately does not, because two owners of one value is the shape of the bug that
+ * stretched the car on day 6.
+ *
+ * **Re-frames on every size change until the user takes the camera**, which is not the
+ * same as "once". Framing once looks equivalent and is not: R3F can report a small but
+ * non-zero size while layout settles — 300x150 was observed in this very app — and a
+ * one-shot would then frame for a viewport nobody has and never correct itself, leaving
+ * the car somewhere off the side of the frame.
+ *
+ * `engaged` flips on the controls' first `start` event. After that the camera is the
+ * user's, and yanking it back to the hero angle because a window changed width would be
+ * far worse than a slightly loose fit.
+ */
+function AutoFraming({ rtl, engaged }: { rtl: boolean; engaged: RefObject<boolean> }) {
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
+  const size = useThree((s) => s.size)
+  const invalidate = useThree((s) => s.invalidate)
+
+  useEffect(() => {
+    if (engaged.current || size.width < 1 || size.height < 1) return
+
+    const v = viewLayout(size.width, size.height, FOV, rtl)
+    camera.position.set(...framingPosition(v.tanHalfH, v.tanHalfV))
+    camera.updateProjectionMatrix()
+    invalidate()
+  }, [camera, size.width, size.height, rtl, invalidate, engaged])
+
+  return null
 }
 
 /**
@@ -266,6 +305,9 @@ export default function Scene() {
    */
   const [tier, setTier] = useState(1)
 
+  /** Flips the first time the user drags the camera; after that the framing is theirs. */
+  const engaged = useRef(false)
+
   // The preset supplies the baseline; the debug panel multiplies on top of it, so
   // day 7 can dial one scene without silently detuning the other two.
   const scene = {
@@ -288,12 +330,8 @@ export default function Scene() {
       // until something invalidates. Debug keeps 'always' because the environment
       // re-bakes continuously there and leva sliders need to show live.
       frameloop={debug ? 'always' : 'demand'}
-      camera={{
-        fov: FOV,
-        position: framingPosition(layout.tanHalfH, layout.tanHalfV),
-        near: 0.1,
-        far: 100,
-      }}
+      // No `position` here on purpose — `AutoFraming` owns it, and owns it alone.
+      camera={{ fov: FOV, near: 0.1, far: 100 }}
       gl={{
         antialias: true,
         // BRIEF §6: from day 1. Costs almost nothing, and without it every
@@ -321,6 +359,7 @@ export default function Scene() {
       <EnvironmentIntensity value={scene.envIntensity * scene.exposure} />
       <InvalidateOnChange />
       <OffsetForUI rtl={direction === 'rtl'} />
+      <AutoFraming rtl={direction === 'rtl'} engaged={engaged} />
       <Post tier={tier} />
       {debug && <DebugBridge />}
 
@@ -407,6 +446,10 @@ export default function Scene() {
 
       <OrbitControls
         target={CAR_CENTRE}
+        // Hands the camera to the user. `AutoFraming` stops re-framing after this.
+        onStart={() => {
+          engaged.current = true
+        }}
         enablePan={false}
         enableDamping
         dampingFactor={0.06}

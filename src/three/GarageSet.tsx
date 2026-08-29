@@ -1,5 +1,3 @@
-import * as THREE from 'three'
-
 /**
  * The garage set, per KARRAJ-LOOKDEV.md §8.
  *
@@ -96,22 +94,31 @@ export default function GarageSet() {
     <group>
       {/* A simple box room. §8: ~13 x 10 x 5 m, six planes, costs nothing. The room's
           closeness is why it reads as a garage — the car's reflections are full of
-          nearby, dim, cluttered surfaces rather than a distant void. */}
+          nearby, dim, cluttered surfaces rather than a distant void.
+
+          Every plane is single-sided, with its normal pointing INTO the room, and that
+          is load-bearing rather than a micro-optimisation. The camera does not stay
+          inside these walls: framing a portrait viewport puts it 11.07 m from the car
+          while the walls are at 7 m, so orbiting takes it outside the room. Double-sided
+          planes were therefore solid from the back, and swinging the camera round simply
+          replaced the car with a grey wall. Single-sided, the room disappears the moment
+          you are outside it and the car stays visible from every angle. Nothing changes
+          for the intended view — from inside, these are the same four surfaces. */}
       <mesh position={[0, 2.5, -6.5]}>
         <planeGeometry args={[14, 5]} />
-        <meshStandardMaterial color={WALL} roughness={0.9} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={WALL} roughness={0.9} />
       </mesh>
       <mesh position={[-7, 2.5, 0]} rotation={[0, Math.PI / 2, 0]}>
         <planeGeometry args={[13, 5]} />
-        <meshStandardMaterial color={WALL} roughness={0.9} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={WALL} roughness={0.9} />
       </mesh>
       <mesh position={[7, 2.5, 0]} rotation={[0, -Math.PI / 2, 0]}>
         <planeGeometry args={[13, 5]} />
-        <meshStandardMaterial color={WALL} roughness={0.9} side={THREE.DoubleSide} />
+        <meshStandardMaterial color={WALL} roughness={0.9} />
       </mesh>
       <mesh position={[0, 5, 0]} rotation={[Math.PI / 2, 0, 0]}>
         <planeGeometry args={[14, 13]} />
-        <meshStandardMaterial color="#0e1013" roughness={0.95} side={THREE.DoubleSide} />
+        <meshStandardMaterial color="#0e1013" roughness={0.95} />
       </mesh>
 
       {/* Clutter, at mid-distance and behind the car so it appears in the paint
