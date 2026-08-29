@@ -42,6 +42,13 @@ const CAR_CENTRE: [number, number, number] = [0, 0.63, 0.238]
 const FOV = 30
 
 /**
+ * Stable object, deliberately. `<Canvas camera={{...}}>` with an inline literal hands
+ * R3F a new object on every render of this component, and R3F responds by rebuilding
+ * the default camera — which arrives unrotated. See `AutoFraming`.
+ */
+const CAMERA_PROPS = { fov: FOV, near: 0.1, far: 100 }
+
+/**
  * Fog reference distance. The art store's `fogDensity` is authored as "the density
  * that reads as a light haze with the camera at BASE_DISTANCE"; `fogDensityFor`
  * rescales it to whatever distance the viewport actually needs. This is only the
@@ -166,6 +173,13 @@ function AutoFraming({ rtl, engaged }: { rtl: boolean; engaged: RefObject<boolea
 
     const v = viewLayout(size.width, size.height, FOV, rtl)
     camera.position.set(...framingPosition(v.tanHalfH, v.tanHalfV))
+    // Orient it here rather than leaving that to OrbitControls' next `update()`.
+    // Between those two moments the camera is positioned but unrotated, and anything
+    // that renders in the gap renders down -Z from the corner of the room. The
+    // screenshot export does exactly that — it renders synchronously from a click,
+    // outside the frame loop — which is how it came back showing the garage's tool
+    // chest and no car. Same target as the controls, so nothing fights.
+    camera.lookAt(...CAR_CENTRE)
     camera.updateProjectionMatrix()
     invalidate()
   }, [camera, size.width, size.height, rtl, invalidate, engaged])
@@ -362,8 +376,8 @@ export default function Scene() {
       // until something invalidates. Debug keeps 'always' because the environment
       // re-bakes continuously there and leva sliders need to show live.
       frameloop={debug ? 'always' : 'demand'}
-      // No `position` here on purpose — `InitialFraming` owns it, and owns it alone.
-      camera={{ fov: FOV, near: 0.1, far: 100 }}
+      // No `position` here on purpose — `AutoFraming` owns it, and owns it alone.
+      camera={CAMERA_PROPS}
       gl={{
         antialias: true,
         // BRIEF §6: from day 1. Costs almost nothing, and without it every
