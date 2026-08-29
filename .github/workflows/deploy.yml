@@ -37,6 +37,12 @@ jobs:
 
       - run: npm run lint
 
+      # The codec and the viewport layout are pure functions with silent failure
+      # modes: a share link that decodes to a slightly different car still looks
+      # like a working link, and a layout that returns NaN still looks like
+      # arithmetic. Both get assertions, and both have already caught real bugs.
+      - run: npm run check
+
       - run: npm run build
 
       # The asset pipeline does NOT run in CI. public/models/car.glb is committed,
