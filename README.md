@@ -1,16 +1,64 @@
 # Karraj (كراج)
 
-A browser-based car configurator. One car under showroom lighting, real-time 3D at 60fps,
-paint / rims / tint / stance driven live — plus a **Jordanian modification-compliance layer**
+A browser-based car configurator. One car under showroom lighting, paint / rims / tint /
+stance driven live in real-time 3D — plus a **Jordanian modification-compliance layer**
 that tells you which choices are street-legal and which must be registered with the DVLD.
+
+It renders on demand rather than continuously, adapts its quality to the device, and
+draws nothing at all while you are not touching it.
 
 Bilingual English / Arabic with genuine RTL.
 
-**Status:** day 7 of 10. Paint, wheels, glass, lights, ride height, underglow, three
-scene presets, adaptive quality, a schema-driven UI, and a dialled look. Share URLs,
-Arabic and the DVLD layer still to come.
+**Status:** complete — ten days, all shipped. Paint and finishes, wheels, glass tint,
+lights, ride height, underglow, three scene presets, adaptive quality, a schema-driven
+bilingual UI, a dialled look, share links, high-resolution export, and the compliance
+layer.
 
 **Live:** <https://karraj.pages.dev>
+
+Try <https://karraj.pages.dev/?lang=ar&c=p1c-111111.p1f-m.gt-80.sd-40> — matte black,
+80% tint, lowered, in Arabic. Every one of those choices has a consequence in the
+panel.
+
+---
+
+## Road legality
+
+The reason this is not a toy, and the reason it is interesting to a company in vehicle
+data. As you configure, `src/rules/dvld.ts` evaluates the build against Jordanian
+modification rules and says which choices are street-legal, which have to go on the
+vehicle licence, and which are explicitly fine.
+
+Matte black at 80% tint, lowered 40 mm:
+
+| | |
+|---|---|
+| 🔴 Window tint is over the limit | **Not permitted** — capped at 50% |
+| 🟠 Colour change | **Must be registered** on the vehicle licence |
+| 🟠 Matte finish | **Must be registered** unless it matches a manufacturer colour code |
+| 🟠 Suspension lowered | **Must be registered** |
+
+### Provenance is part of the output
+
+Every finding prints the authority it rests on. That is the whole difference between a
+compliance feature and a coloured dot, because the failure mode of rules-as-code is
+plausible rules nobody can trace.
+
+- Four rules are tagged `dvld` and cite the **August 2025 DVLD ruling**: the tint cap,
+  colour changes and wraps, matte finishes, and transparent nano-ceramic coatings.
+- The ride-height rule is tagged **`general`** and says so, because no source was
+  researched for it specifically. Inventing a citation would have been worse than
+  showing the gap.
+- Headlight colour and underglow are **deliberately unruled**, for the same reason. The
+  file says so, rather than leaving a reader to wonder whether it was an oversight.
+
+### The unit trap, written down
+
+`glass.tint` in this app is *darkness* — 0 is clear, 1 is limousine black. Tint
+regulations are quoted as **VLT**, the light that gets through, which runs the other
+way. A 50% cap happens to land on the same number under both readings. That is a
+coincidence, not a design, and it is exactly the kind of thing that leaves a rules
+engine quietly wrong, so it is a comment in the source and an assertion in `check.mjs`.
 
 ---
 
@@ -41,8 +89,21 @@ npm run dev        # vite dev server
 npm run build      # tsc -b && vite build
 npm run preview    # serve dist/
 npm run lint       # oxlint
+npm run check      # assertions for the pure modules (see below)
 npm run prepare:car  # rebuild public/models/car.glb from the Khronos source
 ```
+
+`npm run check` is the gate for the code whose failures are invisible: the URL codec,
+the viewport layout, the translations and the compliance rules. A link that decodes to
+a slightly different car still looks like a working link, and a layout function that
+returns `NaN` still looks like arithmetic — so they get 34 assertions instead of a
+reviewer's good intentions. It runs in CI beside lint and build.
+
+It has earned its place four times: an out-of-range tint that clamped or reverted
+depending on how many digits the nonsense had, two dictionary keys nothing referenced,
+a formatter that printed `mm` into an Arabic panel, and a viewport layout that returned
+`NaN` for a `0x0` container — which is what React hands you on the first render of
+every mount.
 
 ---
 
@@ -190,9 +251,74 @@ not exist is a compile error rather than a control that silently does nothing. I
 becomes the field list for the day-8 URL codec.
 
 Panels use progressive disclosure, one open at a time (§12 rule 7). Everything is laid
-out with CSS **logical properties**, and `dir="rtl"` is verified to mirror the rail, the
-toggle knobs and the camera's framing offset — day 9 adds the Arabic strings, not the
-layout work.
+out with CSS **logical properties**, so `dir="rtl"` mirrors the rail, the toggle knobs
+and the camera's framing offset without a single conditional. That was the cheap half of
+RTL; the expensive half is below.
+
+## Arabic, and what RTL actually costs
+
+Both languages live in one file, with `ar` typed `Record<MessageKey, string>` so the
+English table is the schema and an untranslated key is a compile error. 94 keys. The
+language follows `?lang=`, then the browser's own preference — an Arabic browser opens
+in Arabic.
+
+Translation is the easy half. These are the parts that make it *genuine* RTL, and every
+one of them was a visible defect first:
+
+- **Arabic is cursive.** `letter-spacing` severs the joins between letters and turns a
+  word into a row of disconnected glyphs. The wide tracking that gives the Latin UI its
+  look is not a style choice in Arabic, it is a bug — so every `tracking-*` utility is
+  neutralised under `[lang='ar']`.
+- **Monospace faces do not carry Arabic.** Left alone, every `font-mono` label fell back
+  to an arbitrary system face with different metrics from the panel around it, and the
+  labels stopped lining up with their values.
+- **Bidi reorders runs with no strong direction of their own.** The build counter in the
+  footer rendered as `10 / 9`. Slider values have the same exposure and are isolated in
+  `<bdi>`.
+- **Formatters print words.** `stock` and `mm` are text, so the formatter signature takes
+  the translator. A `Record<MessageKey, string>` cannot catch a string that never went
+  through the dictionary; the "every key is referenced" assertion in `npm run check` can.
+- **The camera has to be told.** A projection offset has a direction and cannot infer
+  one, so `useDirection` observes the `dir` attribute rather than reading it once. The
+  car re-frames to the other side of the canvas when the language flips.
+
+System font stack rather than a webfont: every current OS ships a good Arabic face, and
+the 0.08 MB the brief budgets for fonts would still need a third-party download step in
+the build. The trade is consistency across platforms; the upgrade is a subsetted
+self-hosted face.
+
+## Share links and export
+
+**`src/state/codec.ts`** encodes the whole configuration into one query parameter:
+
+```
+?c=p1c-2b2f36.p1f-m.gt-70.ev-n
+```
+
+Query, never a path segment — a static CDN has no routing. `-` and `.` are the
+separators because they are the only punctuation `URLSearchParams` leaves alone; `~`
+reads better and comes back as `%7E`, and a share link full of percent escapes looks
+broken even when it works.
+
+Three rules earned their place:
+
+- **Defaults are omitted**, so a stock car has no parameter at all and a short link
+  genuinely means "close to stock".
+- **Decoding never throws and never rejects wholesale.** Chat apps truncate links and
+  people hand-edit them, so each field validates alone: a bad one falls back to its
+  default and every other field still lands. `check.mjs` decodes every prefix of 200
+  encoded links and 220 adversarial strings.
+- **Enums encode as explicit letter codes, never list indices**, so reordering
+  `FINISHES` cannot silently repaint every link ever shared.
+
+**Screenshot export** renders one frame at 2x the visible area. It is not
+`canvas.toDataURL()`, for three reasons: tone mapping lives in the post-processing
+chain, so a plain `gl.render` is washed out; the composer has to be resized alongside
+the renderer or the effects cover only a corner; and the exported frame must not contain
+the hole the UI was sitting in. That last one reuses the same `setViewOffset` mechanism
+the on-screen framing uses, so the export is exactly the pixels you can see, at whatever
+scale is asked for. Renderer size, pixel ratio and view offset are all restored,
+including on failure.
 
 ## Three scene presets
 
@@ -310,6 +436,81 @@ America do not always carry a valid one, so refusing to decode would reject real
 in an import market. Length and charset failures *are* fatal, and are caught locally
 before any request goes out.
 
+## Performance, measured
+
+Numbers below are from the **live deployment**, not a dev server, at 1280x760 CSS on a
+2x display (1920x1140 drawing buffer). Draw calls are counted at the WebGL context by
+wrapping `drawElements`/`drawArrays`, so nothing here depends on trusting the framework.
+
+### What ships
+
+| | over the wire | |
+|---|---:|---|
+| `index.html` | 371 B | brotli |
+| CSS | 5.4 kB | brotli |
+| JS | ~430 kB | brotli, three chunks |
+| `car.glb` | 2.28 MB | already meshopt + WebP internally, so served as-is |
+| **first load** | **≈ 2.7 MB** | against the brief's 3.4 MB budget |
+
+No HDRI (the environment is built from `<Lightformer>`s at runtime) and no font files,
+which is where the remaining headroom comes from. leva is lazy-loaded and never reaches
+production.
+
+The JS is split into `three` / `react` / app. First load is byte-identical either way;
+a **redeploy costs a returning visitor ~20 kB instead of ~430 kB**, because the engine
+chunk sits in a year-long immutable cache and only the app chunk changes.
+
+### What it costs to draw
+
+| | draw calls | triangles |
+|---|---:|---:|
+| main scene | 134 | 196,380 |
+| floor reflection | 133 | 196,480 |
+| post-processing chain | ~18 | — |
+| **per rendered frame** | **285** | **392,878** |
+
+**The reflective floor doubles the scene.** `MeshReflectorMaterial` re-renders everything
+from a mirrored camera, so the car is drawn twice per frame for a 256x256 target that is
+then blurred `[400, 100]`. It is already dropped at quality tier 0, which is where the
+adaptive monitor puts a device that cannot hold frame rate. If this ever needs to be
+faster, that pass is the first place to look — putting the interior and the garage set on
+a separate layer would cut roughly a third of its draw calls with no visible difference
+at that resolution and blur.
+
+That cost is only paid on frames that actually render. `frameloop="demand"` means a
+parked scene draws nothing at all:
+
+- **0 draw calls over 5 seconds idle.** The car is static and the camera only moves when
+  dragged; drawing at display refresh rate forever would pin the GPU for frames identical
+  to the last one.
+
+### No leaks
+
+Switching environment preset remounts `<Environment>` and re-bakes a cube target — a
+classic place to leak GPU objects. Twelve switches:
+
+- 12 textures created, **12 deleted**
+- 72 framebuffers created, **72 deleted**
+- **0 shader programs compiled**, which is the flake normal map staying bound at scale 0
+  paying off — swapping a material's texture bindings triggers a recompile, and a
+  recompile is a visible hitch
+- JS heap +2.6 MB across all twelve, i.e. ordinary churn
+
+## Browser support
+
+**Safari 16.4+ · Chrome 111+ · Firefox 128+**, and WebGL2 in all cases.
+
+That floor comes from Tailwind 4, not from anything in this project: the generated
+stylesheet uses `@property` (46 occurrences), `color-mix()` (52) and `oklch()` (11).
+Nothing in the application code needs anything newer than `<dialog>.showModal()` and
+`structuredClone`, both of which predate it.
+
+Verified in Safari on macOS against the live deployment: the render, the post-processing,
+the reflective floor, the schema-driven panel and the compliance readout all behave. The
+one thing a modal `<dialog>` does *not* reliably bring with it is the Escape key — some
+embedded webviews swallow it, measured — so `Credits` handles Escape explicitly rather
+than trusting the host page.
+
 ## Debug panel
 
 ```
@@ -331,7 +532,19 @@ without which dragging a light intensity changes nothing visible.
 
 ## Deployment
 
-Cloudflare Pages. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+Cloudflare Pages, pushed from CI on `main`. See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+
+`public/_headers` sets the caching, and the split is deliberate:
+
+- `/assets/*` — `immutable`, one year. Vite content-hashes everything there.
+- `/models/*` — one day, plus a week of `stale-while-revalidate`. The GLB is **not**
+  content-hashed; it is a stable path out of `public/`. A repushed model therefore
+  reaches returning visitors within a day without costing a round trip on every load.
+  Marking it immutable would be wrong until the filename carries a hash.
+
+CI runs `lint`, `check` and `build` for everyone, and deploys only when the Cloudflare
+secrets exist — so a fork gets a green tick rather than a red X for a step that was never
+going to work.
 
 There is deliberately **no `_redirects` file**. Cloudflare rejects the usual
 `/* /index.html 200` SPA rule as an infinite loop, and it turns out to be redundant
